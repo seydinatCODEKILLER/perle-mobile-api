@@ -35,6 +35,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(httpLogger);
 app.use(responseHandler);
 
+// Documentation Swagger
+app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(specs));
+
 // ✅ Rate limiter général appliqué à toutes les routes API
 app.use("/api", generalLimiter);
 
@@ -54,15 +57,12 @@ app.use("/api/statistiques", dashboardRoute.routes);
 app.use("/api/wallet", walletRoute.routes);
 app.use("/api/expenses", expenseRoute.routes);
 
-// Documentation Swagger
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(specs));
-
 // Route par défaut pour vérifier que l'API tourne
 app.get("/health", (req, res) => {
   res.status(200).json({
     message: "API is running",
     version: "1.0.0",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
