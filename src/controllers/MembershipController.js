@@ -53,7 +53,7 @@ async createMembership(req, res) {
     try {
       const { organizationId } = req.params;
       const userId = req.user.id;
-      const { status, role, search, page, limit } = req.query;
+      const { status, role, search, gender, page, limit } = req.query;
 
       const result = await this.service.getOrganizationMembers(
         organizationId,
@@ -62,6 +62,7 @@ async createMembership(req, res) {
           status,
           role,
           search,
+          gender,
           page: parseInt(page) || 1,
           limit: parseInt(limit) || 10,
         }

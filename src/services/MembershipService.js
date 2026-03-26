@@ -359,7 +359,7 @@ export default class MembershipService {
    * ✅ Récupérer les membres avec les bonnes données d'affichage
    */
   async getOrganizationMembers(organizationId, currentUserId, filters = {}) {
-    const { status, role, search, page = 1, limit = 10 } = filters;
+    const { status, role, search, gender, page = 1, limit = 10 } = filters;
     const skip = (page - 1) * limit;
 
     // Vérifier que l'utilisateur a accès à cette organisation
@@ -379,6 +379,9 @@ export default class MembershipService {
       organizationId,
       ...(status && { status }),
       ...(role && { role }),
+      ...(gender && {
+        OR: [{ user: { gender: gender } }, { provisionalGender: gender }],
+      }),
       ...(search && {
         OR: [
           { memberNumber: { contains: search, mode: "insensitive" } },
@@ -463,7 +466,16 @@ export default class MembershipService {
         userId: currentUserId,
         organizationId,
         status: "ACTIVE",
-        role: { in: ["ADMIN", "FINANCIAL_MANAGER", "PRESIDENT", "VICE_PRESIDENT", "SECRETARY_GENERAL", "ORGANIZER"] },
+        role: {
+          in: [
+            "ADMIN",
+            "FINANCIAL_MANAGER",
+            "PRESIDENT",
+            "VICE_PRESIDENT",
+            "SECRETARY_GENERAL",
+            "ORGANIZER",
+          ],
+        },
       },
     });
 
