@@ -324,5 +324,5 @@ export const swaggerOptions = {
       },
     ],
   },
-  apis: ["./src/routes/*.js", "./src/controllers/*.js"],
+  apis: ["./src/routes/*.js", "./src/controllers/*.js",   "./src/modules/**/*.routes.js", "./src/modules/**/*.controller.js"],
 };
