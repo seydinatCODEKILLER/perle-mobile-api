@@ -1,26 +1,23 @@
 import express from "express";
 import cors from "cors";
-import responseHandler from "./middlewares/responseMiddleware.js";
 import logger from "./config/logger.js";
 import { getCorsOptions } from "./config/cors.js";
 import { generalLimiter } from "./config/rateLimiter.js";
-import httpLogger, { errorLogger } from "./utils/Httplogger.js";
-import {
-  authRoute,
-  contributionPlanRoute,
-  contributionRoute,
-  dashboardRoute,
-  debtRoute,
-  expenseRoute,
-  membershipRoute,
-  organisationRoute,
-  subscriptionRoute,
-  transactionRoute,
-  walletRoute,
-} from "./utils/Router.js";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import { swaggerOptions } from "./config/swagger.js";
+import { authRoutes } from "./modules/auth/auth.module.js";
+import { errorHandler, notFoundHandler } from "./shared/middlewares/error.middleware.js";
+import { organizationRoutes } from "./modules/organizations/organization.module.js";
+import { membershipRoutes } from "./modules/memberships/membership.module.js";
+import { contributionPlanRoutes } from "./modules/contribution-plans/contribution-plan.module.js";
+import { contributionRoutes } from "./modules/contributions/contribution.module.js";
+import { debtRoutes } from "./modules/debts/debt.module.js";
+import { transactionRoutes } from "./modules/transactions/transaction.module.js";
+import { walletRoutes } from "./modules/wallets/wallet.module.js";
+import { expenseRoutes } from "./modules/expenses/expense.module.js";
+import { subscriptionRoutes } from "./modules/subscriptions/subscription.module.js";
+import { dashboardRoutes } from "./modules/statisques/dashboard.module.js";
 
 const app = express();
 const specs = swaggerJSDoc(swaggerOptions);
@@ -32,8 +29,6 @@ app.set("trust proxy", 1);
 app.use(cors(getCorsOptions()));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(httpLogger);
-app.use(responseHandler);
 
 // Documentation Swagger
 app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(specs));
@@ -45,17 +40,17 @@ app.use("/api", generalLimiter);
 logger.info("API middlewares initialized");
 
 // Routes
-app.use("/api/auth", authRoute.routes);
-app.use("/api/organizations", organisationRoute.routes);
-app.use("/api/membership", membershipRoute.routes);
-app.use("/api/contribution-plans", contributionPlanRoute.routes);
-app.use("/api/contributions", contributionRoute.routes);
-app.use("/api/debts", debtRoute.routes);
-app.use("/api/transactions", transactionRoute.routes);
-app.use("/api/subscriptions", subscriptionRoute.routes);
-app.use("/api/statistiques", dashboardRoute.routes);
-app.use("/api/wallet", walletRoute.routes);
-app.use("/api/expenses", expenseRoute.routes);
+app.use("/api/auth", authRoutes);
+app.use("/api/organizations", organizationRoutes);
+app.use("/api/membership", membershipRoutes);
+app.use("/api/contribution-plans", contributionPlanRoutes);
+app.use("/api/contributions", contributionRoutes);
+app.use("/api/debts", debtRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/api/statistiques", dashboardRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/expenses", expenseRoutes);
 
 // Route par défaut pour vérifier que l'API tourne
 app.get("/health", (req, res) => {
@@ -66,23 +61,8 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Route 404 — doit être en dernier
-app.use((req, res) => {
-  logger.warn({ method: req.method, url: req.url }, "Route not found");
-  res.status(404).json({ message: "Route not found" });
-});
-
 // Error logger
-app.use(errorLogger);
-
-// Gestion des erreurs non catchées
-process.on("uncaughtException", (error) => {
-  logger.fatal({ err: error }, "Uncaught Exception");
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error({ reason, promise }, "Unhandled Rejection");
-});
+app.all("/{*path}", notFoundHandler);
+app.use(errorHandler);
 
 export default app;
