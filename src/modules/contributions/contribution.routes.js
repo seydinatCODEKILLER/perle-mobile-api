@@ -192,7 +192,7 @@ router.get(
 
 /**
  * @swagger
- * /api/contributions/{organizationId}/contributions/{id}/mark-paid:
+ * /api/contributions/{organizationId}/contribution/{id}/mark-paid:
  *   patch:
  *     summary: Marquer une cotisation comme payée
  *     tags: [Contributions]
@@ -229,14 +229,14 @@ router.get(
  *         description: Cotisation marquée comme payée
  */
 router.patch(
-  "/:organizationId/contributions/:id/mark-paid",
+  "/:organizationId/contribution/:id/mark-paid",
   validate(markAsPaidSchema),
   contributionController.markAsPaid
 );
 
 /**
  * @swagger
- * /api/contributions/{organizationId}/contributions/{id}/partial-payment:
+ * /api/contributions/{organizationId}/contribution/{id}/partial-payment:
  *   post:
  *     summary: Ajouter un paiement partiel
  *     tags: [Contributions]
@@ -273,7 +273,7 @@ router.patch(
  *         description: Paiement partiel ajouté
  */
 router.post(
-  "/:organizationId/contributions/:id/partial-payment",
+  "/:organizationId/contribution/:id/partial-payment",
   validate(addPartialPaymentSchema),
   contributionController.addPartialPayment
 );
