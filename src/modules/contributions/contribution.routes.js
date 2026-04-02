@@ -163,7 +163,7 @@ router.get(
 
 /**
  * @swagger
- * /api/contributions/{organizationId}/contributions/{id}:
+ * /api/contributions/{organizationId}/contribution/{id}:
  *   get:
  *     summary: Récupérer une cotisation spécifique
  *     tags: [Contributions]
@@ -185,7 +185,7 @@ router.get(
  *         description: Détails de la cotisation
  */
 router.get(
-  "/:organizationId/contributions/:id",
+  "/:organizationId/contribution/:id",
   validate(contributionParamSchema),
   contributionController.getOne
 );
@@ -280,7 +280,7 @@ router.post(
 
 /**
  * @swagger
- * /api/contributions/{organizationId}/contributions/{id}/cancel:
+ * /api/contributions/{organizationId}/{id}/cancel:
  *   patch:
  *     summary: Annuler une cotisation (admin uniquement)
  *     description: Annule une cotisation. Si un paiement avait été effectué, le montant est déduit du wallet de l'organisation.
@@ -317,8 +317,8 @@ router.post(
  *       404:
  *         description: Cotisation non trouvée
  */
-router.patch(
-  "/:organizationId/contributions/:id/cancel",
+router.put(
+  "/:organizationId/:id/cancel",
   validate(cancelContributionSchema),
   contributionController.cancel
 );
