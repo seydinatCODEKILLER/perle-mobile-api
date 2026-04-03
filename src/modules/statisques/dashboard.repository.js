@@ -1,4 +1,3 @@
-// src/modules/dashboards/dashboard.repository.js
 import { prisma } from "../../config/database.js";
 
 export class DashboardRepository {
@@ -98,6 +97,19 @@ export class DashboardRepository {
     });
   }
 
+  async getContributionPaymentDelay(organizationId, membershipId = null) {
+    return prisma.contribution.findMany({
+      where: {
+        organizationId,
+        ...(membershipId && { membershipId }),
+        status: "PAID",
+        paymentDate: { not: null },
+      },
+      select: { dueDate: true, paymentDate: true },
+      take: 50,
+    });
+  }
+
   // ✅ NOUVEAU : Agrégats strictement liés au membre (pour le dashboard personnel)
   async getMemberContributionsAgg(organizationId, membershipId) {
     return prisma.contribution.aggregate({
@@ -167,19 +179,6 @@ export class DashboardRepository {
       include: { contributionPlan: { select: { name: true } } },
       orderBy: { paymentDate: "desc" },
       take: Math.floor(limit / 2),
-    });
-  }
-
-  async getContributionPaymentDelay(organizationId, membershipId) {
-    return prisma.contribution.findMany({
-      where: {
-        organizationId,
-        membershipId,
-        status: "PAID",
-        paymentDate: { not: null },
-      },
-      select: { dueDate: true, paymentDate: true },
-      take: 50,
     });
   }
 
