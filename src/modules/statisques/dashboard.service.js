@@ -1,4 +1,3 @@
-// src/modules/dashboards/dashboard.service.js
 import { DashboardRepository } from "./dashboard.repository.js";
 import { AdminDashboardService } from "./admin.dashboard.service.js";
 import { FinancialDashboardService } from "./financial.dashboard.service.js";
