@@ -2,22 +2,26 @@ import { z } from "zod";
 
 const ORGANIZATION_TYPES = ["DAHIRA", "ASSOCIATION", "TONTINE", "GROUPEMENT"];
 
-const settingsSchema = z.object({
-  allowPartialPayments: z.boolean().default(false),
-  autoReminders: z.boolean().default(true),
-  reminderDays: z.array(z.number().int().min(1).max(30)).default([1, 3, 7]),
-  emailNotifications: z.boolean().default(true),
-  smsNotifications: z.boolean().default(false),
-  whatsappNotifications: z.boolean().default(false),
-  sessionTimeout: z.number().int().min(5).max(480).default(60),
-}).optional();
+const settingsSchema = z
+  .object({
+    allowPartialPayments: z.boolean().default(false),
+    autoReminders: z.boolean().default(true),
+    reminderDays: z.array(z.number().int().min(1).max(30)).default([1, 3, 7]),
+    emailNotifications: z.boolean().default(true),
+    smsNotifications: z.boolean().default(false),
+    whatsappNotifications: z.boolean().default(false),
+    sessionTimeout: z.number().int().min(5).max(480).default(60),
+  })
+  .optional();
 
-const walletSchema = z.object({
-  initialBalance: z
-    .number()
-    .nonnegative("Le solde initial doit être positif ou nul")
-    .default(0),
-}).optional();
+const walletSchema = z
+  .object({
+    initialBalance: z
+      .number()
+      .nonnegative("Le solde initial doit être positif ou nul")
+      .default(0),
+  })
+  .optional();
 
 export const createOrganizationSchema = z.object({
   body: z.object({
@@ -58,10 +62,7 @@ export const updateSettingsSchema = z.object({
     .object({
       allowPartialPayments: z.boolean().optional(),
       autoReminders: z.boolean().optional(),
-      reminderDays: z
-        .array(z.number().int().min(1).max(30))
-        .min(1)
-        .optional(),
+      reminderDays: z.array(z.number().int().min(1).max(30)).min(1).optional(),
       emailNotifications: z.boolean().optional(),
       smsNotifications: z.boolean().optional(),
       whatsappNotifications: z.boolean().optional(),
@@ -98,7 +99,7 @@ export const updateWalletSchema = z.object({
       {
         message:
           "Le total des dépenses ne peut pas dépasser le total des revenus",
-      }
+      },
     ),
   params: z.object({ id: z.string().min(1) }),
 });

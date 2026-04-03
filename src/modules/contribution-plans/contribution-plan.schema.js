@@ -14,9 +14,21 @@ export const createPlanSchema = z.object({
         errorMap: () => ({ message: "Fréquence invalide" }),
       }),
       differentiateByGender: z.boolean().default(false),
-      amount: z.number().positive("Le montant doit être positif").optional().nullable(),
-      amountMale: z.number().positive("Le montant hommes doit être positif").optional().nullable(),
-      amountFemale: z.number().positive("Le montant femmes doit être positif").optional().nullable(),
+      amount: z
+        .number()
+        .positive("Le montant doit être positif")
+        .optional()
+        .nullable(),
+      amountMale: z
+        .number()
+        .positive("Le montant hommes doit être positif")
+        .optional()
+        .nullable(),
+      amountFemale: z
+        .number()
+        .positive("Le montant femmes doit être positif")
+        .optional()
+        .nullable(),
       currency: z.string().default("XOF"),
       startDate: z.string().datetime({ message: "Date de début invalide" }),
       endDate: z
@@ -40,7 +52,7 @@ export const createPlanSchema = z.object({
           ? "amountMale et amountFemale sont requis quand differentiateByGender est true"
           : "amount est requis quand differentiateByGender est false",
         path: data.differentiateByGender ? ["amountMale"] : ["amount"],
-      })
+      }),
     )
     // ✅ endDate doit être après startDate
     .refine(
@@ -51,7 +63,7 @@ export const createPlanSchema = z.object({
       {
         message: "La date de fin doit être après la date de début",
         path: ["endDate"],
-      }
+      },
     ),
 });
 

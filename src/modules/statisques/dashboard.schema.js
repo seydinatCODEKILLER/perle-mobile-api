@@ -1,4 +1,3 @@
-// src/modules/dashboards/dashboard.schema.js
 import { z } from "zod";
 
 export const orgParamSchema = z.object({
