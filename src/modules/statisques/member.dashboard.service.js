@@ -1,5 +1,3 @@
-// src/modules/dashboards/member.dashboard.service.js
-
 export class MemberDashboardService {
   constructor(repo) {
     this.repo = repo;
@@ -7,8 +5,8 @@ export class MemberDashboardService {
 
   async getDashboardData(organizationId, membershipId) {
     const [
+      rawActiveContributions, // ✅ Changement de nom pour clarifier
       kpis,
-      contributions,
       overdueContributions,
       upcomingContributions,
       personalDebts,
@@ -17,8 +15,8 @@ export class MemberDashboardService {
       history,
       personalStats,
     ] = await Promise.all([
-      this.#getMemberKPIs(organizationId, membershipId),
       this.repo.getActiveContributionsList(organizationId, membershipId),
+      this.#getMemberKPIs(organizationId, membershipId),
       this.#getOverdueContributions(organizationId, membershipId),
       this.#getUpcomingContributions(organizationId, membershipId),
       this.#getPersonalDebts(organizationId, membershipId),
@@ -30,6 +28,17 @@ export class MemberDashboardService {
 
     const memberInfo = await this.#getMemberInfo(membershipId);
 
+    const activeContributions = rawActiveContributions.map((c) => ({
+      id: c.id,
+      planName: c.contributionPlan.name,
+      frequency: c.contributionPlan.frequency,
+      dueDate: c.dueDate,
+      amount: c.amount,
+      amountPaid: c.amountPaid,
+      remaining: (c.amount || 0) - (c.amountPaid || 0),
+      status: c.status,
+    }));
+
     return {
       role: "MEMBER",
       organizationId,
@@ -38,7 +47,7 @@ export class MemberDashboardService {
       memberInfo,
       kpis,
       contributions: {
-        active: contributions,
+        active: activeContributions,
         overdue: overdueContributions,
         upcoming: upcomingContributions,
       },
