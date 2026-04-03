@@ -2,11 +2,14 @@ import "dotenv/config";
 import app from "./app.js";
 import { prisma } from "./config/database.js";
 import { env } from "./config/env.js";
+import { startCronJobs } from "./modules/notifications/notification.cron.js";
 
 const startServer = async () => {
   try {
     await prisma.$connect();
     console.log("✅ Connecté à MongoDB via Prisma");
+
+    startCronJobs();
 
     const server = app.listen(env.PORT, "0.0.0.0", () => {
       console.log(`🚀 Serveur démarré sur http://localhost:${env.PORT}`);

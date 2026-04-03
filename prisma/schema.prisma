@@ -628,6 +628,9 @@ model Notification {
   status         NotificationStatus @default(PENDING)
   sentAt         DateTime?
 
+  relatedId      String?     
+  relatedType    String?
+
   organization   Organization @relation(fields: [organizationId], references: [id])
   membership     Membership?  @relation(fields: [membershipId], references: [id])
 

@@ -268,6 +268,57 @@ export const swaggerOptions = {
             updatedAt: { type: "string", format: "date-time" },
           },
         },
+
+        Notification: {
+          type: "object",
+          properties: {
+            id: { type: "string", example: "65a1b2c3d4e5f6g7h8i9j0k" },
+            organizationId: { type: "string" },
+            membershipId: { type: "string", nullable: true },
+            type: {
+              type: "string",
+              enum: [
+                "CONTRIBUTION_REMINDER",
+                "DEBT_REMINDER",
+                "PAYMENT_CONFIRMATION",
+                "MEMBERSHIP_UPDATE",
+                "SYSTEM_ALERT",
+              ],
+            },
+            title: { type: "string", example: "Rappel de cotisation" },
+            message: {
+              type: "string",
+              example: "Votre cotisation est due demain.",
+            },
+            priority: {
+              type: "string",
+              enum: ["LOW", "MEDIUM", "HIGH", "URGENT"],
+            },
+            channels: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["IN_APP", "EMAIL", "SMS", "WHATSAPP"],
+              },
+            },
+            status: {
+              type: "string",
+              enum: ["PENDING", "SENT", "FAILED", "DELIVERED"],
+            },
+            relatedId: {
+              type: "string",
+              nullable: true,
+              description: "ID de la cotisation ou dette liée",
+            },
+            relatedType: {
+              type: "string",
+              nullable: true,
+              enum: ["CONTRIBUTION", "DEBT"],
+            },
+            sentAt: { type: "string", format: "date-time", nullable: true },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
       },
       parameters: {
         periodQuery: {
@@ -324,5 +375,10 @@ export const swaggerOptions = {
       },
     ],
   },
-  apis: ["./src/routes/*.js", "./src/controllers/*.js",   "./src/modules/**/*.routes.js", "./src/modules/**/*.controller.js"],
+  apis: [
+    "./src/routes/*.js",
+    "./src/controllers/*.js",
+    "./src/modules/**/*.routes.js",
+    "./src/modules/**/*.controller.js",
+  ],
 };
