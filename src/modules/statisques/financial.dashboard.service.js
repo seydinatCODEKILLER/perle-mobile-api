@@ -170,10 +170,12 @@ export class FinancialDashboardService {
         amount: d.approved._sum.amount || 0,
       },
       paid: { count: d.paid._count, amount: d.paid._sum.amount || 0 },
-      rejected: {
-        count: d.rejected._count,
-        amount: d.rejected._sum.amount || 0,
-      },
+      total: { count: d.total._count, amount: d.total._sum.amount || 0 },
+      byCategory: d.byCategory.map((c) => ({
+        category: c.category,
+        amount: c._sum.amount || 0,
+        count: c._count.id,
+      })),
     };
   }
 
@@ -292,24 +294,25 @@ export class FinancialDashboardService {
   }
 
   async #getAveragePaymentTime(orgId) {
-    // Le repo récupère les paiements récents pour éviter un calcul trop lourd
+    // ✅ La méthode du repo attend un membershipId — on utilise une requête globale
     const contributions = await this.repo.getContributionPaymentDelay(
       orgId,
-      "GLOBAL",
-    ); // Utilise la méthode globale du repo si nécessaire, sinon on l'adapte
-    if (!contributions || contributions.length === 0) return 0;
-    const totalDays = contributions.reduce(
-      (sum, c) =>
-        sum +
-        Math.ceil(
-          (new Date(c.paymentDate).getTime() - new Date(c.dueDate).getTime()) /
-            (1000 * 60 * 60 * 24),
-        ),
-      0,
+      null,
     );
+    if (!contributions || contributions.length === 0) return 0;
+
+    const totalDays = contributions.reduce((sum, c) => {
+      if (!c.paymentDate || !c.dueDate) return sum;
+      const diff = Math.ceil(
+        (new Date(c.paymentDate).getTime() - new Date(c.dueDate).getTime()) /
+          (1000 * 60 * 60 * 24),
+      );
+      return sum + diff;
+    }, 0);
+
     return Math.round(totalDays / contributions.length);
   }
-
+  
   async #getExpenseControlRate(orgId) {
     const d = await this.repo.getExpenseControlAgg(orgId);
     if (d.total === 0) return { approvalRate: 0, rejectionRate: 0 };
