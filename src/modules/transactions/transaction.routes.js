@@ -149,7 +149,7 @@ router.get(
 
 /**
  * @swagger
- * /api/transactions/{organizationId}/my-transactions:
+ * /api/transactions/{organizationId}/members/transactions:
  *   get:
  *     summary: Mes transactions (membre connecté)
  *     description: Récupérer l'historique des transactions liées au compte de l'utilisateur connecté.
@@ -182,7 +182,7 @@ router.get(
  *         description: Mes transactions
  */
 router.get(
-  "/:organizationId/my-transactions",
+  "/:organizationId/members/transactions",
   validate(myTransactionsSchema),
   transactionController.getMine,
 );
