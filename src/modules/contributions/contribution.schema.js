@@ -8,8 +8,8 @@ export const listContributionsSchema = z.object({
     status: z
       .enum(["PENDING", "PAID", "PARTIAL", "OVERDUE", "CANCELLED"])
       .optional(),
-    membershipId: z.string().uuid().optional(),
-    contributionPlanId: z.string().uuid().optional(),
+    membershipId: z.string().optional(),
+    contributionPlanId: z.string().optional(),
     startDate: z
       .string()
       .transform((val) => new Date(val))
