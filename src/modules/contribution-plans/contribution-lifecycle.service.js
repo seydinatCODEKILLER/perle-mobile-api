@@ -1,5 +1,6 @@
 import { ContributionPlanRepository } from "./contribution-plan.repository.js";
 import { prisma } from "../../config/database.js";
+import { pushTokenService } from "../push-tokens/push-token.service.js";
 import {
   ForbiddenError,
   NotFoundError,
@@ -50,6 +51,16 @@ const checkAccess = async (userId, organizationId, roles = []) => {
   return membership;
 };
 
+const formatAmount = (amount, currency = "XOF") =>
+  `${amount.toLocaleString("fr-FR")} ${currency}`;
+
+const formatDate = (date) =>
+  new Date(date).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
 // ─── Service ──────────────────────────────────────────────────
 
 export class ContributionLifecycleService {
@@ -67,7 +78,6 @@ export class ContributionLifecycleService {
     const period = getMonthRange(dueDate);
     const dueDateRange = { gte: period.gte, lt: period.lt };
 
-    // Protection métier contre les doublons
     const existingCount = await planRepo.countContributionsForPeriod(
       planId,
       organizationId,
@@ -81,7 +91,7 @@ export class ContributionLifecycleService {
     if (members.length === 0)
       throw new NotFoundError("Aucun membre actif trouvé");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       if (force && existingCount > 0) {
         await tx.contribution.deleteMany({
           where: {
@@ -101,7 +111,7 @@ export class ContributionLifecycleService {
         status: "PENDING",
       }));
 
-      const result = await tx.contribution.createMany({
+      const created = await tx.contribution.createMany({
         data: contributionsData,
       });
 
@@ -116,7 +126,7 @@ export class ContributionLifecycleService {
           organizationId,
           membershipId: admin.id,
           details: {
-            generatedCount: result.count,
+            generatedCount: created.count,
             periodFrom: period.from,
             periodTo: period.to,
             dueDate,
@@ -129,9 +139,10 @@ export class ContributionLifecycleService {
       });
 
       return {
-        generated: result.count,
+        generated: created.count,
         dueDate,
         period,
+        members,
         stats: {
           total: members.length,
           provisional: provisionalCount,
@@ -139,6 +150,32 @@ export class ContributionLifecycleService {
         },
       };
     });
+
+    // ✅ Notifications push APRÈS la transaction (non bloquant)
+    const membersWithAccount = result.members.filter((m) => m.userId);
+    if (membersWithAccount.length > 0) {
+      const userIds = membersWithAccount.map((m) => m.userId);
+      const amount = resolveAmount(plan, membersWithAccount[0]);
+
+      pushTokenService
+        .sendToUsers(userIds, {
+          title: "Nouvelle cotisation",
+          body: `Une nouvelle cotisation "${plan.name}" a été générée. Échéance : ${formatDate(result.dueDate)}.`,
+          data: {
+            type: "CONTRIBUTION_GENERATED",
+            planId,
+            organizationId,
+            dueDate: result.dueDate.toISOString(),
+          },
+        })
+        .catch((err) =>
+          console.error("[PUSH] Erreur génération cotisations:", err.message),
+        );
+    }
+
+    // On retire members de la réponse finale (pas utile pour le client)
+    const { members: _, ...finalResult } = result;
+    return finalResult;
   }
 
   async assignPlanToMember(organizationId, planId, membershipId, userId) {
@@ -208,6 +245,25 @@ export class ContributionLifecycleService {
         },
       },
     });
+
+    // ✅ Notification push si le membre a un compte (non bloquant)
+    if (member.userId) {
+      pushTokenService
+        .sendToUser(member.userId, {
+          title: "Nouvelle cotisation assignée",
+          body: `Une cotisation "${plan.name}" de ${formatAmount(contribution.amount)} vous a été assignée. Échéance : ${formatDate(dueDate)}.`,
+          data: {
+            type: "CONTRIBUTION_ASSIGNED",
+            contributionId: contribution.id,
+            planId,
+            organizationId,
+            dueDate: dueDate.toISOString(),
+          },
+        })
+        .catch((err) =>
+          console.error("[PUSH] Erreur assignation cotisation:", err.message),
+        );
+    }
 
     return contribution;
   }

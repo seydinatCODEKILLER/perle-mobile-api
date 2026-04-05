@@ -19,6 +19,7 @@ import { expenseRoutes } from "./modules/expenses/expense.module.js";
 import { subscriptionRoutes } from "./modules/subscriptions/subscription.module.js";
 import { dashboardRoutes } from "./modules/statisques/dashboard.module.js";
 import { notificationRoutes } from "./modules/notifications/notification.module.js";
+import { pushTokenRoutes } from "./modules/push-tokens/push-token.module.js";
 
 const app = express();
 const specs = swaggerJSDoc(swaggerOptions);
@@ -53,6 +54,7 @@ app.use("/api/statistiques", dashboardRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/push-tokens", pushTokenRoutes);
 
 
 // Route par défaut pour vérifier que l'API tourne

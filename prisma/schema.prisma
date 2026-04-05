@@ -189,7 +189,7 @@ model User {
   nom           String
   phone         String      @unique
   avatar        String?
-   gender       Gender? 
+  gender        Gender? 
   role          UserRole    @default(MEMBER)
   isActive      Boolean     @default(true)
   canCreateOrganization Boolean @default(true)
@@ -198,6 +198,7 @@ model User {
   organizations Organization[] @relation("OwnedOrganizations")
   auditLogs     AuditLog[]
   refreshTokens RefreshToken[]
+  pushTokens    PushToken[] 
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -702,4 +703,24 @@ model AuditLog {
   @@index([membershipId])
   @@index([resource])
   @@map("audit_logs")
+}
+
+
+model PushToken {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token       String   @unique
+  platform    String?  // "ios" | "android"
+  deviceName  String?
+
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("push_tokens")
 }
