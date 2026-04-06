@@ -218,9 +218,16 @@ export class ContributionLifecycleService {
       include: {
         membership: {
           include: {
-            user: { select: { prenom: true, nom: true, gender: true } },
+            user: {
+              select: { prenom: true, nom: true, gender: true },
+            },
           },
-          contributionPlan: { select: { name: true, frequency: true } },
+        },
+        contributionPlan: {
+          select: {
+            name: true,
+            frequency: true,
+          },
         },
       },
     });
