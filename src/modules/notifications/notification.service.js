@@ -246,10 +246,10 @@ export class NotificationService {
 
       // ✅ SÉCURITÉ : On vérifie si on a DÉJÀ envoyé ce rappel précis
       const alreadySent = await notifRepo.hasRecentReminder(
-        organizationId, 
-        membership.id, 
-        "DEBT_REMINDER", 
-        debt.id
+        organizationId,
+        membership.id,
+        "DEBT_REMINDER",
+        debt.id,
       );
       if (alreadySent) continue;
 
@@ -268,16 +268,18 @@ export class NotificationService {
         relatedType: "DEBT",
       });
 
-      await this.dispatchChannels(notification, contact, channels).catch(() => {});
+      await this.dispatchChannels(notification, contact, channels).catch(
+        () => {},
+      );
       count++;
     }
 
     return count;
   }
 
-    async processDailyReminders() {
+  async processDailyReminders() {
     const organizations = await notifRepo.getActiveOrganizationsWithSettings();
-    
+
     let stats = { orgsProcessed: 0, contribReminders: 0, debtReminders: 0 };
 
     for (const org of organizations) {
@@ -291,13 +293,12 @@ export class NotificationService {
             this.sendContributionReminders(org.id, days),
             this.sendDebtReminders(org.id, days),
           ]);
-          
+
           stats.contribReminders += c;
           stats.debtReminders += d;
         }
-        
-        stats.orgsProcessed++;
 
+        stats.orgsProcessed++;
       } catch (error) {
         // On isole l'erreur d'une org pour ne pas tuer le cron global
         console.error(`[CRON] Erreur org ${org.id}:`, error.message);
@@ -307,7 +308,6 @@ export class NotificationService {
     return stats;
   }
 
-  
   // ─── Notifications automatiques métier ────────────────────────────────────
   async sendPaymentConfirmation(
     organizationId,
@@ -358,5 +358,64 @@ export class NotificationService {
     await this.dispatchChannels(notification, contact, channels).catch(
       () => {},
     );
+  }
+
+  // ─── Notifications Événements ─────────────────────────────────
+  async notifyEventPublished(organizationId, eventId, eventTitle, visibility) {
+    const channels = await this.resolveChannels(organizationId);
+    let targetMembershipIds = [];
+
+    if (visibility === "INVITE_ONLY") {
+      targetMembershipIds = await notifRepo.getEventInvitees(eventId);
+    } else {
+      const memberships = await notifRepo.getActiveMemberships(organizationId);
+      targetMembershipIds = memberships.map((m) => m.id);
+    }
+
+    const notifications = targetMembershipIds.map((membershipId) => ({
+      organizationId,
+      membershipId,
+      type: "EVENT_CREATED",
+      title: "Nouvel événement",
+      message: `Un nouvel événement "${eventTitle}" a été publié.`,
+      priority: "MEDIUM",
+      channels,
+      status: "PENDING",
+      relatedId: eventId,
+      relatedType: "EVENT",
+    }));
+
+    if (notifications.length > 0) {
+      await notifRepo.createMany(notifications);
+    }
+  }
+
+    async notifyEventCancelled(organizationId, eventId, eventTitle, visibility) {
+    const channels = await this.resolveChannels(organizationId);
+    let targetMembershipIds = [];
+
+    if (visibility === "INVITE_ONLY") {
+      targetMembershipIds = await notifRepo.getEventInvitees(eventId);
+    } else {
+      const memberships = await notifRepo.getActiveMemberships(organizationId);
+      targetMembershipIds = memberships.map(m => m.id);
+    }
+
+    const notifications = targetMembershipIds.map(membershipId => ({
+      organizationId,
+      membershipId,
+      type: "EVENT_CANCELLED",
+      title: "Événement annulé",
+      message: `L'événement "${eventTitle}" a été annulé par l'organisateur.`,
+      priority: "HIGH",
+      channels,
+      status: "PENDING",
+      relatedId: eventId,
+      relatedType: "EVENT",
+    }));
+
+    if (notifications.length > 0) {
+      await notifRepo.createMany(notifications);
+    }
   }
 }

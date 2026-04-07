@@ -250,7 +250,7 @@ export class NotificationRepository extends BaseRepository {
     });
   }
 
-    // ─── Anti-Doublon ─────────────────────────────────────────────────────
+  // ─── Anti-Doublon ─────────────────────────────────────────────────────
   async hasRecentReminder(organizationId, membershipId, type, relatedId) {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const count = await prisma.notification.count({
@@ -263,5 +263,14 @@ export class NotificationRepository extends BaseRepository {
       },
     });
     return count > 0;
+  }
+
+  // ─── Données pour les Événements ─────────────────────────────
+  async getEventInvitees(eventId) {
+    const invitees = await prisma.eventAttendee.findMany({
+      where: { eventId, status: "INVITED" },
+      select: { membershipId: true },
+    });
+    return invitees.map((i) => i.membershipId);
   }
 }

@@ -31,6 +31,13 @@ const sanitizeValue = (value) => {
     if (trimmed === "true") return true;
     if (trimmed === "false") return false;
 
+    // ⚠️ AJOUT MANQUANT : Conversion des strings numériques en vrais nombres
+    // Le regex vérifie qu'on a bien des chiffres (optionnellement un signe - ou + au début, et un . pour les décimales)
+    // On utilise trimmed !== "" au cas où, bien qu'on ait déjà vérifié plus haut
+    if (/^[-+]?\d*\.?\d+$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+
     return trimmed;
   }
 

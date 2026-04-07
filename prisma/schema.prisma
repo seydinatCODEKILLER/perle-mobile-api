@@ -134,6 +134,10 @@ enum NotificationType {
   PAYMENT_CONFIRMATION
   MEMBERSHIP_UPDATE
   SYSTEM_ALERT
+  EVENT_CREATED
+  EVENT_UPDATED
+  EVENT_REMINDER
+  EVENT_CANCELLED
 }
 
 enum NotificationPriority {
@@ -175,6 +179,37 @@ enum SubscriptionStatus {
 enum Gender {
   MALE
   FEMALE
+}
+
+enum EventType {
+  REUNION
+  FETE
+  CONFERENCE
+  FORMATION
+  ACTIVITE_SOCIALE
+  COLLECTE_DE_FONDS
+  AUTRE
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  INVITED 
+  PENDING
+  GOING
+  MAYBE
+  NOT_GOING
+}
+
+enum EventVisibility {
+  ORGANIZATION_WIDE
+  INVITE_ONLY
 }
 
 // ======================================================
@@ -260,6 +295,7 @@ model Organization {
   expenses      Expense[]
   notifications Notification[]
   auditLogs     AuditLog[]
+  events        Event[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -323,12 +359,14 @@ model Membership {
   expenseAttachments ExpenseAttachment[]
   createdExpenses Expense[] @relation("CreatedExpenses")
   approvedExpenses Expense[] @relation("ApprovedExpenses")
+  createdEvents   Event[] @relation("CreatedEvents")
+  eventAttendances EventAttendee[] 
   
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   
   @@unique([organizationId, memberNumber])
-  @@index([provisionalPhone]) // ✅ Index pour recherche rapide
+  @@index([provisionalPhone])
   @@map("memberships")
 }
 
@@ -558,6 +596,7 @@ model Expense {
   createdById     String          @db.ObjectId
   transactionId   String?         @db.ObjectId
   approvedById    String?         @db.ObjectId
+  eventId         String?         @db.ObjectId
 
   title           String
   description     String?
@@ -574,6 +613,7 @@ model Expense {
   createdBy       Membership      @relation("CreatedExpenses", fields: [createdById], references: [id])
   approvedBy      Membership?     @relation("ApprovedExpenses", fields: [approvedById], references: [id])
   transaction     Transaction?    @relation(fields: [transactionId], references: [id])
+  event           Event?          @relation("EventExpenses", fields: [eventId], references: [id])
   
   attachments     ExpenseAttachment[]
 
@@ -723,4 +763,71 @@ model PushToken {
 
   @@index([userId])
   @@map("push_tokens")
+}
+
+// ======================================================
+//  EVENTS — Événements de l'organisation
+// ======================================================
+
+model Event {
+  id              String      @id @default(auto()) @map("_id") @db.ObjectId
+  organizationId  String      @db.ObjectId
+  createdById     String      @db.ObjectId
+
+  title           String
+  description     String?
+  type            EventType
+  status          EventStatus @default(DRAFT)
+  visibility      EventVisibility @default(ORGANIZATION_WIDE)
+
+  startDate       DateTime
+  endDate         DateTime?
+  location        String?
+  locationUrl     String?
+  
+  isOnline        Boolean     @default(false)
+  meetingLink     String?
+
+  coverImage      String?
+  maxParticipants Int?
+
+  estimatedBudget Float?
+  actualExpense   Float?
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  createdBy       Membership  @relation("CreatedEvents", fields: [createdById], references: [id])
+  attendees       EventAttendee[]
+  expenses        Expense[]   @relation("EventExpenses")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([organizationId, startDate])
+  @@index([status])
+  @@index([createdById])
+  @@map("events")
+}
+
+// ======================================================
+//  EVENT ATTENDEES — Participation des membres
+// ======================================================
+
+model EventAttendee {
+  id             String           @id @default(auto()) @map("_id") @db.ObjectId
+  eventId        String           @db.ObjectId
+  membershipId   String           @db.ObjectId
+
+  status         AttendanceStatus @default(PENDING)
+  respondedAt    DateTime?
+
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  membership     Membership       @relation(fields: [membershipId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([eventId, membershipId])
+  @@index([membershipId])
+  @@index([status])
+  @@map("event_attendees")
 }
