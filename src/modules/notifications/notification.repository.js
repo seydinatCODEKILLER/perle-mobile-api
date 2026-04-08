@@ -126,10 +126,13 @@ export class NotificationRepository extends BaseRepository {
   }
 
   // ─── Données pour le Service (Requêtes spécifiques au domaine métier) ────
-
   async getSettings(organizationId) {
-    return prisma.organizationSettings.findUnique({
-      where: { organizationId },
+    return prisma.organizationSettings.findFirst({
+      where: {
+        organization: {
+          id: organizationId,
+        },
+      },
       select: {
         autoReminders: true,
         reminderDays: true,
