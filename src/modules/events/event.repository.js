@@ -117,7 +117,7 @@ export class EventRepository extends BaseRepository {
           },
           orderBy: { respondedAt: "desc" },
         },
-        _count: { select: { expenses: true } },
+        _count: { select: { expenses: true, attendees: true } },
       },
     });
   }
