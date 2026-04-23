@@ -7,8 +7,7 @@ import { startCronJobs } from "./modules/notifications/notification.cron.js";
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log("✅ Connecté à MongoDB via Prisma");
-
+    console.log("✅ Connecté à PostgreSQL via Prisma");
     startCronJobs();
 
     const server = app.listen(env.PORT, "0.0.0.0", () => {

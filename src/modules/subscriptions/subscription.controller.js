@@ -1,4 +1,3 @@
-// src/modules/subscriptions/subscription.controller.js
 import { SubscriptionService } from "./subscription.service.js";
 
 const subService = new SubscriptionService();

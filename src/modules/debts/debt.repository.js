@@ -1,4 +1,3 @@
-// src/modules/debts/debt.repository.js
 import { prisma } from "../../config/database.js";
 import { BaseRepository } from "../../shared/base/base.repository.js";
 
@@ -449,6 +448,16 @@ export class DebtRepository extends BaseRepository {
       });
 
       return cancelled;
+    });
+  }
+
+  async markOverdue() {
+    return prisma.debt.updateMany({
+      where: {
+        status: { in: ["ACTIVE", "PARTIALLY_PAID"] },
+        dueDate: { lt: new Date() },
+      },
+      data: { status: "OVERDUE" },
     });
   }
 }

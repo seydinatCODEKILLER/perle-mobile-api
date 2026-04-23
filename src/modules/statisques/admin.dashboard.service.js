@@ -1,4 +1,3 @@
-// src/modules/dashboards/admin.dashboard.service.js
 
 const LABELS = {
   ACTIVE: "Actif",

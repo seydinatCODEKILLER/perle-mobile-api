@@ -10,7 +10,7 @@ import {
 
 const planRepo = new ContributionPlanRepository();
 
-// ─── Pure Helpers ────────────────────────────────────────────
+// ─── Pure Helpers ─────────────────────────────────────────────
 const getMonthRange = (date) => {
   const start = new Date(date.getFullYear(), date.getMonth(), 1);
   const end = new Date(date.getFullYear(), date.getMonth() + 1, 1);
@@ -34,19 +34,14 @@ const resolveAmount = (plan, membership) => {
   const gender = membership.user?.gender || membership.provisionalGender;
   if (plan.differentiateByGender) {
     if (gender === "MALE" && plan.amountMale != null) return plan.amountMale;
-    if (gender === "FEMALE" && plan.amountFemale != null)
-      return plan.amountFemale;
+    if (gender === "FEMALE" && plan.amountFemale != null) return plan.amountFemale;
   }
   if (plan.amount != null) return plan.amount;
   throw new BadRequestError("Aucun montant défini pour ce membre");
 };
 
 const checkAccess = async (userId, organizationId, roles = []) => {
-  const membership = await planRepo.requireMembership(
-    userId,
-    organizationId,
-    roles,
-  );
+  const membership = await planRepo.requireMembership(userId, organizationId, roles);
   if (!membership) throw new ForbiddenError("Accès non autorisé");
   return membership;
 };
@@ -64,6 +59,7 @@ const formatDate = (date) =>
 // ─── Service ──────────────────────────────────────────────────
 
 export class ContributionLifecycleService {
+
   async generateForPlan(organizationId, planId, userId, options = {}) {
     const { force = false, dueDateOffset = 0 } = options;
     const admin = await checkAccess(userId, organizationId, [
@@ -88,18 +84,14 @@ export class ContributionLifecycleService {
     }
 
     const members = await planRepo.findActiveMembers(organizationId);
-    if (members.length === 0)
-      throw new NotFoundError("Aucun membre actif trouvé");
+    if (members.length === 0) throw new NotFoundError("Aucun membre actif trouvé");
 
+    // La transaction reste sur prisma directement car elle coordonne
+    // plusieurs opérations atomiques qui ne peuvent pas être abstraites
+    // dans le repository sans perdre la garantie transactionnelle
     const result = await prisma.$transaction(async (tx) => {
       if (force && existingCount > 0) {
-        await tx.contribution.deleteMany({
-          where: {
-            contributionPlanId: planId,
-            organizationId,
-            dueDate: dueDateRange,
-          },
-        });
+        await planRepo.deleteManyContributions(tx, planId, organizationId, dueDateRange);
       }
 
       const contributionsData = members.map((member) => ({
@@ -111,30 +103,25 @@ export class ContributionLifecycleService {
         status: "PENDING",
       }));
 
-      const created = await tx.contribution.createMany({
-        data: contributionsData,
-      });
-
+      const created = await planRepo.createManyContributions(tx, contributionsData);
       const provisionalCount = members.filter((m) => !m.userId).length;
 
-      await tx.auditLog.create({
-        data: {
-          action: "GENERATE_CONTRIBUTIONS",
-          resource: "contribution_plan",
-          resourceId: planId,
-          userId,
-          organizationId,
-          membershipId: admin.id,
-          details: {
-            generatedCount: created.count,
-            periodFrom: period.from,
-            periodTo: period.to,
-            dueDate,
-            force,
-            totalMembers: members.length,
-            provisionalMembers: provisionalCount,
-            withAccount: members.length - provisionalCount,
-          },
+      await planRepo.createAuditLogInTx(tx, {
+        action: "GENERATE_CONTRIBUTIONS",
+        resource: "contribution_plan",
+        resourceId: planId,
+        userId,
+        organizationId,
+        membershipId: admin.id,
+        details: {
+          generatedCount: created.count,
+          periodFrom: period.from,
+          periodTo: period.to,
+          dueDate,
+          force,
+          totalMembers: members.length,
+          provisionalMembers: provisionalCount,
+          withAccount: members.length - provisionalCount,
         },
       });
 
@@ -151,11 +138,10 @@ export class ContributionLifecycleService {
       };
     });
 
-    // ✅ Notifications push APRÈS la transaction (non bloquant)
+    // Notifications push APRÈS la transaction (non bloquant)
     const membersWithAccount = result.members.filter((m) => m.userId);
     if (membersWithAccount.length > 0) {
       const userIds = membersWithAccount.map((m) => m.userId);
-      const amount = resolveAmount(plan, membersWithAccount[0]);
 
       pushTokenService
         .sendToUsers(userIds, {
@@ -173,7 +159,6 @@ export class ContributionLifecycleService {
         );
     }
 
-    // On retire members de la réponse finale (pas utile pour le client)
     const { members: _, ...finalResult } = result;
     return finalResult;
   }
@@ -196,64 +181,42 @@ export class ContributionLifecycleService {
     const dueDateRange = { gte: period.gte, lt: period.lt };
 
     const exists = await planRepo.findExistingContributionForPeriod(
-      membershipId,
-      planId,
-      organizationId,
-      dueDateRange,
+      membershipId, planId, organizationId, dueDateRange,
     );
     if (exists)
       throw new ConflictError(
         "Cotisation déjà existante pour ce membre sur cette période",
       );
 
-    const contribution = await prisma.contribution.create({
-      data: {
+    const contribution = await planRepo.createContribution({
+      membershipId,
+      contributionPlanId: planId,
+      organizationId,
+      amount: resolveAmount(plan, member),
+      dueDate,
+      status: "PENDING",
+    });
+
+    await planRepo.createAuditLog({
+      action: "ASSIGN_CONTRIBUTION",
+      resource: "contribution",
+      resourceId: contribution.id,
+      userId,
+      organizationId,
+      membershipId: admin.id,
+      details: {
         membershipId,
-        contributionPlanId: planId,
-        organizationId,
-        amount: resolveAmount(plan, member),
+        planId,
+        amount: contribution.amount,
         dueDate,
-        status: "PENDING",
-      },
-      include: {
-        membership: {
-          include: {
-            user: {
-              select: { prenom: true, nom: true, gender: true },
-            },
-          },
-        },
-        contributionPlan: {
-          select: {
-            name: true,
-            frequency: true,
-          },
-        },
+        isProvisional: !member.userId,
+        memberName: member.userId
+          ? `${member.user?.prenom} ${member.user?.nom}`
+          : `${member.provisionalFirstName} ${member.provisionalLastName}`,
       },
     });
 
-    await prisma.auditLog.create({
-      data: {
-        action: "ASSIGN_CONTRIBUTION",
-        resource: "contribution",
-        resourceId: contribution.id,
-        userId,
-        organizationId,
-        membershipId: admin.id,
-        details: {
-          membershipId,
-          planId,
-          amount: contribution.amount,
-          dueDate,
-          isProvisional: !member.userId,
-          memberName: member.userId
-            ? `${member.user?.prenom} ${member.user?.nom}`
-            : `${member.provisionalFirstName} ${member.provisionalLastName}`,
-        },
-      },
-    });
-
-    // ✅ Notification push si le membre a un compte (non bloquant)
+    // Notification push si le membre a un compte (non bloquant)
     if (member.userId) {
       pushTokenService
         .sendToUser(member.userId, {
@@ -275,49 +238,33 @@ export class ContributionLifecycleService {
     return contribution;
   }
 
-  async updateContributionStatus(
-    organizationId,
-    contributionId,
-    userId,
-    status,
-  ) {
+  async updateContributionStatus(organizationId, contributionId, userId, status) {
     const admin = await checkAccess(userId, organizationId, [
       "ADMIN",
       "FINANCIAL_MANAGER",
     ]);
-    const allowedStatuses = [
-      "PENDING",
-      "PARTIAL",
-      "PAID",
-      "OVERDUE",
-      "CANCELLED",
-    ];
+
+    const allowedStatuses = ["PENDING", "PARTIAL", "PAID", "OVERDUE", "CANCELLED"];
     if (!allowedStatuses.includes(status))
       throw new BadRequestError("Statut invalide");
 
-    const contribution =
-      await planRepo.findContributionWithMember(contributionId);
+    const contribution = await planRepo.findContributionWithMember(contributionId);
     if (!contribution || contribution.organizationId !== organizationId)
       throw new NotFoundError("Cotisation non trouvée");
 
-    const updated = await prisma.contribution.update({
-      where: { id: contributionId },
-      data: { status },
-    });
+    const updated = await planRepo.updateContributionStatus(contributionId, status);
 
-    await prisma.auditLog.create({
-      data: {
-        action: "UPDATE_CONTRIBUTION_STATUS",
-        resource: "contribution",
-        resourceId: contributionId,
-        userId,
-        organizationId,
-        membershipId: admin.id,
-        details: {
-          oldStatus: contribution.status,
-          newStatus: status,
-          isProvisional: !contribution.membership.userId,
-        },
+    await planRepo.createAuditLog({
+      action: "UPDATE_CONTRIBUTION_STATUS",
+      resource: "contribution",
+      resourceId: contributionId,
+      userId,
+      organizationId,
+      membershipId: admin.id,
+      details: {
+        oldStatus: contribution.status,
+        newStatus: status,
+        isProvisional: !contribution.membership.userId,
       },
     });
 
