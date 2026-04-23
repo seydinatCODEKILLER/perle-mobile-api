@@ -10,7 +10,8 @@ import {
 const contribRepo = new ContributionRepository();
 
 export class ContributionService {
-  // ─── Helpers ────────────────────────────────────────────────
+
+  // ─── Helpers privés ───────────────────────────────────────────
   async #checkAccess(userId, organizationId, roles = []) {
     const membership = await contribRepo.findActiveMembership(
       userId,
@@ -23,10 +24,7 @@ export class ContributionService {
   }
 
   async #getContributionOrFail(contributionId, organizationId, include = {}) {
-    const contribution = await prisma.contribution.findUnique({
-      where: { id: contributionId },
-      include,
-    });
+    const contribution = await contribRepo.findById(contributionId, include);
     if (!contribution || contribution.organizationId !== organizationId) {
       throw new NotFoundError("Cotisation non trouvée dans cette organisation");
     }
@@ -65,26 +63,25 @@ export class ContributionService {
 
   async #sendPaymentNotification(contribution, amount) {
     try {
-      await prisma.notification.create({
-        data: {
-          organizationId: contribution.organizationId,
-          membershipId: contribution.membershipId,
-          type: "PAYMENT_CONFIRMATION",
-          title: "Paiement confirmé",
-          message: `Paiement de ${amount} XOF pour "${contribution.contributionPlan.name}"`,
-          priority: "MEDIUM",
-          channels: ["IN_APP"],
-          status: "PENDING",
-        },
+      await contribRepo.createNotification({
+        organizationId: contribution.organizationId,
+        membershipId: contribution.membershipId,
+        type: "PAYMENT_CONFIRMATION",
+        title: "Paiement confirmé",
+        message: `Paiement de ${amount} XOF pour "${contribution.contributionPlan.name}"`,
+        priority: "MEDIUM",
+        channels: ["IN_APP"],
+        status: "PENDING",
       });
     } catch (error) {
       console.error("Notification error:", error);
     }
   }
 
-  // ─── Lectures ───────────────────────────────────────────────
+  // ─── Lectures ─────────────────────────────────────────────────
   async getContributions(organizationId, currentUserId, filters) {
     await this.#checkAccess(currentUserId, organizationId);
+
     const {
       status,
       membershipId,
@@ -134,6 +131,7 @@ export class ContributionService {
 
   async getContributionById(organizationId, contributionId, currentUserId) {
     await this.#checkAccess(currentUserId, organizationId);
+
     const contribution = await contribRepo.findByIdWithDetails(
       contributionId,
       organizationId,
@@ -150,16 +148,9 @@ export class ContributionService {
     };
   }
 
-  async getMemberContributions(
-    organizationId,
-    membershipId,
-    currentUserId,
-    filters,
-  ) {
-    const currentMembership = await this.#checkAccess(
-      currentUserId,
-      organizationId,
-    );
+  async getMemberContributions(organizationId, membershipId, currentUserId, filters) {
+    const currentMembership = await this.#checkAccess(currentUserId, organizationId);
+
     if (
       currentMembership.role !== "ADMIN" &&
       currentMembership.id !== membershipId
@@ -180,11 +171,7 @@ export class ContributionService {
         (page - 1) * limit,
         limit,
       ),
-      contribRepo.aggregateMemberTotals(
-        organizationId,
-        membershipId,
-        whereClause,
-      ),
+      contribRepo.aggregateMemberTotals(organizationId, membershipId, whereClause),
     ]);
 
     return {
@@ -195,8 +182,7 @@ export class ContributionService {
       totals: {
         totalAmount: totals._sum.amount || 0,
         totalPaid: totals._sum.amountPaid || 0,
-        totalRemaining:
-          (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
+        totalRemaining: (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
       },
       pagination: {
         page,
@@ -209,6 +195,7 @@ export class ContributionService {
 
   async getMyContributions(organizationId, currentUserId, filters) {
     const membership = await this.#checkAccess(currentUserId, organizationId);
+
     const { status, page = 1, limit = 10 } = filters;
     const where = {
       organizationId,
@@ -217,28 +204,9 @@ export class ContributionService {
     };
     const skip = (page - 1) * limit;
 
-    const [contributions, total, totals] = await Promise.all([
-      prisma.contribution.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { dueDate: "desc" },
-        include: {
-          contributionPlan: {
-            select: { id: true, name: true, amount: true, frequency: true },
-          },
-          membership: {
-            include: {
-              user: { select: { prenom: true, nom: true, avatar: true } },
-            },
-          },
-        },
-      }),
-      prisma.contribution.count({ where }),
-      prisma.contribution.aggregate({
-        where,
-        _sum: { amount: true, amountPaid: true },
-      }),
+    const [{ contributions, total }, totals] = await Promise.all([
+      contribRepo.findMyContributions(where, skip, limit),
+      contribRepo.aggregateTotals(where),
     ]);
 
     return {
@@ -249,14 +217,13 @@ export class ContributionService {
       totals: {
         totalAmount: totals._sum.amount || 0,
         totalPaid: totals._sum.amountPaid || 0,
-        totalRemaining:
-          (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
+        totalRemaining: (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
       },
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   }
 
-  // ─── Paiements ──────────────────────────────────────────────
+  // ─── Paiements ────────────────────────────────────────────────
   async markAsPaid(organizationId, contributionId, currentUserId, paymentData) {
     const currentMembership = await this.#checkAccess(
       currentUserId,
@@ -271,71 +238,56 @@ export class ContributionService {
 
     if (contribution.status === "PAID")
       throw new ConflictError("Cette cotisation est déjà payée");
+
     const remaining = this.#remaining(contribution);
     if (paymentData.amountPaid !== remaining)
       throw new BadRequestError(`Le montant exact requis est ${remaining}`);
 
     const result = await prisma.$transaction(async (tx) => {
-      const wallet = await tx.organizationWallet.findUnique({
-        where: { organizationId },
-      });
+      const wallet = await contribRepo.findWallet(tx, organizationId);
       if (!wallet)
         throw new NotFoundError("Wallet non trouvé pour cette organisation");
 
-      const updatedContribution = await tx.contribution.update({
-        where: { id: contributionId },
-        data: {
-          amountPaid: contribution.amount,
-          status: "PAID",
-          paymentDate: new Date(),
-          paymentMethod: paymentData.paymentMethod,
-        },
-        include: { contributionPlan: true },
+      const updatedContribution = await contribRepo.updateContributionInTx(tx, contributionId, {
+        amountPaid: contribution.amount,
+        status: "PAID",
+        paymentDate: new Date(),
+        paymentMethod: paymentData.paymentMethod,
       });
 
-      const transaction = await tx.transaction.create({
-        data: {
-          organizationId,
-          membershipId: contribution.membershipId,
-          walletId: wallet.id,
-          type: "CONTRIBUTION",
-          amount: paymentData.amountPaid,
-          currency: wallet.currency,
-          paymentMethod: paymentData.paymentMethod,
-          paymentStatus: "COMPLETED",
-          reference: `CONT-${Date.now()}-${contributionId.slice(-6)}`,
-          metadata: { contributionId },
-        },
+      const transaction = await contribRepo.createTransactionInTx(tx, {
+        organizationId,
+        membershipId: contribution.membershipId,
+        walletId: wallet.id,
+        type: "CONTRIBUTION",
+        amount: paymentData.amountPaid,
+        currency: wallet.currency,
+        paymentMethod: paymentData.paymentMethod,
+        paymentStatus: "COMPLETED",
+        reference: `CONT-${Date.now()}-${contributionId.slice(-6)}`,
+        metadata: { contributionId },
       });
 
-      await tx.contribution.update({
-        where: { id: contributionId },
-        data: { transactionId: transaction.id },
-      });
-      await tx.organizationWallet.update({
-        where: { id: wallet.id },
-        data: {
-          currentBalance: { increment: paymentData.amountPaid },
-          totalIncome: { increment: paymentData.amountPaid },
-        },
+      await contribRepo.linkTransaction(tx, contributionId, transaction.id);
+      await contribRepo.updateWalletInTx(tx, wallet.id, {
+        currentBalance: { increment: paymentData.amountPaid },
+        totalIncome: { increment: paymentData.amountPaid },
       });
 
       return updatedContribution;
     });
 
-    await prisma.auditLog.create({
-      data: {
-        action: "MARK_CONTRIBUTION_PAID",
-        resource: "contribution",
-        resourceId: contributionId,
-        userId: currentUserId,
-        organizationId,
-        membershipId: currentMembership.id,
-        financialImpact: paymentData.amountPaid,
-        details: {
-          amount: paymentData.amountPaid,
-          contributionPlanName: contribution.contributionPlan.name,
-        },
+    await contribRepo.createAuditLog({
+      action: "MARK_CONTRIBUTION_PAID",
+      resource: "contribution",
+      resourceId: contributionId,
+      userId: currentUserId,
+      organizationId,
+      membershipId: currentMembership.id,
+      financialImpact: paymentData.amountPaid,
+      details: {
+        amount: paymentData.amountPaid,
+        contributionPlanName: contribution.contributionPlan.name,
       },
     });
 
@@ -343,12 +295,7 @@ export class ContributionService {
     return result;
   }
 
-  async addPartialPayment(
-    organizationId,
-    contributionId,
-    currentUserId,
-    paymentData,
-  ) {
+  async addPartialPayment(organizationId, contributionId, currentUserId, paymentData) {
     const currentMembership = await this.#checkAccess(
       currentUserId,
       organizationId,
@@ -362,95 +309,72 @@ export class ContributionService {
 
     if (!contribution.organization.settings.allowPartialPayments)
       throw new ForbiddenError("Paiements partiels non autorisés");
-    if (
-      paymentData.amount <= 0 ||
-      paymentData.amount > this.#remaining(contribution)
-    )
+    if (paymentData.amount <= 0 || paymentData.amount > this.#remaining(contribution))
       throw new BadRequestError("Montant invalide");
 
     const result = await prisma.$transaction(async (tx) => {
-      const wallet = await tx.organizationWallet.findUnique({
-        where: { organizationId },
-      });
+      const wallet = await contribRepo.findWallet(tx, organizationId);
       if (!wallet)
         throw new NotFoundError("Wallet non trouvé pour cette organisation");
 
-      await tx.partialPayment.create({
-        data: {
-          contributionId,
-          amount: paymentData.amount,
-          paymentMethod: paymentData.paymentMethod,
-          paymentDate: new Date(),
-        },
+      await contribRepo.createPartialPaymentInTx(tx, {
+        contributionId,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod,
+        paymentDate: new Date(),
       });
 
       const newAmountPaid = contribution.amountPaid + paymentData.amount;
-      const newStatus =
-        newAmountPaid >= contribution.amount ? "PAID" : "PARTIAL";
+      const newStatus = newAmountPaid >= contribution.amount ? "PAID" : "PARTIAL";
 
-      const updatedContribution = await tx.contribution.update({
-        where: { id: contributionId },
-        data: {
-          amountPaid: newAmountPaid,
-          status: newStatus,
-          ...(newStatus === "PAID" && { paymentDate: new Date() }),
-        },
+      const updatedContribution = await contribRepo.updateContributionInTx(tx, contributionId, {
+        amountPaid: newAmountPaid,
+        status: newStatus,
+        ...(newStatus === "PAID" && { paymentDate: new Date() }),
       });
 
-      await tx.transaction.create({
-        data: {
-          organizationId,
-          membershipId: contribution.membershipId,
-          walletId: wallet.id,
-          type: "CONTRIBUTION",
-          amount: paymentData.amount,
-          currency: wallet.currency,
-          paymentMethod: paymentData.paymentMethod,
-          paymentStatus: "COMPLETED",
-          reference: `PARTIAL-${Date.now()}-${contributionId.slice(-6)}`,
-          description: `Paiement partiel pour ${contribution.contributionPlan.name}`,
-          metadata: { contributionId, isPartialPayment: true },
-        },
+      await contribRepo.createTransactionInTx(tx, {
+        organizationId,
+        membershipId: contribution.membershipId,
+        walletId: wallet.id,
+        type: "CONTRIBUTION",
+        amount: paymentData.amount,
+        currency: wallet.currency,
+        paymentMethod: paymentData.paymentMethod,
+        paymentStatus: "COMPLETED",
+        reference: `PARTIAL-${Date.now()}-${contributionId.slice(-6)}`,
+        description: `Paiement partiel pour ${contribution.contributionPlan.name}`,
+        metadata: { contributionId, isPartialPayment: true },
       });
 
-      await tx.organizationWallet.update({
-        where: { id: wallet.id },
-        data: {
-          currentBalance: { increment: paymentData.amount },
-          totalIncome: { increment: paymentData.amount },
-        },
+      await contribRepo.updateWalletInTx(tx, wallet.id, {
+        currentBalance: { increment: paymentData.amount },
+        totalIncome: { increment: paymentData.amount },
       });
 
       return updatedContribution;
     });
 
-    await prisma.auditLog.create({
-      data: {
-        action: "ADD_PARTIAL_PAYMENT",
-        resource: "contribution",
-        resourceId: contributionId,
-        userId: currentUserId,
-        organizationId,
-        membershipId: currentMembership.id,
-        financialImpact: paymentData.amount,
-        details: {
-          amount: paymentData.amount,
-          newTotalPaid: result.amountPaid,
-          contributionPlanName: contribution.contributionPlan.name,
-        },
+    await contribRepo.createAuditLog({
+      action: "ADD_PARTIAL_PAYMENT",
+      resource: "contribution",
+      resourceId: contributionId,
+      userId: currentUserId,
+      organizationId,
+      membershipId: currentMembership.id,
+      financialImpact: paymentData.amount,
+      details: {
+        amount: paymentData.amount,
+        newTotalPaid: result.amountPaid,
+        contributionPlanName: contribution.contributionPlan.name,
       },
     });
 
     return result;
   }
 
-  // ─── Annulation ─────────────────────────────────────────────
-  async cancelContribution(
-    organizationId,
-    contributionId,
-    currentUserId,
-    reason = "",
-  ) {
+  // ─── Annulation ───────────────────────────────────────────────
+  async cancelContribution(organizationId, contributionId, currentUserId, reason = "") {
     const currentMembership = await this.#checkAccess(
       currentUserId,
       organizationId,
@@ -465,41 +389,33 @@ export class ContributionService {
     if (contribution.status === "CANCELLED")
       throw new ConflictError("Cotisation déjà annulée");
 
-    return await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       if (contribution.amountPaid > 0) {
-        const wallet = await tx.organizationWallet.findUnique({
-          where: { organizationId },
-        });
+        const wallet = await contribRepo.findWallet(tx, organizationId);
         if (wallet) {
-          await tx.organizationWallet.update({
-            where: { id: wallet.id },
-            data: {
-              currentBalance: { decrement: contribution.amountPaid },
-              totalIncome: { decrement: contribution.amountPaid },
-            },
+          await contribRepo.updateWalletInTx(tx, wallet.id, {
+            currentBalance: { decrement: contribution.amountPaid },
+            totalIncome: { decrement: contribution.amountPaid },
           });
         }
       }
 
-      const cancelledContribution = await tx.contribution.update({
-        where: { id: contributionId },
-        data: { status: "CANCELLED" },
-      });
+      const cancelledContribution = await contribRepo.updateContributionInTx(
+        tx, contributionId, { status: "CANCELLED" },
+      );
 
-      await tx.auditLog.create({
-        data: {
-          action: "CANCEL_CONTRIBUTION",
-          resource: "contribution",
-          resourceId: contributionId,
-          userId: currentUserId,
-          organizationId,
-          membershipId: currentMembership.id,
-          financialImpact: -contribution.amountPaid,
-          details: {
-            reason,
-            amountPaid: contribution.amountPaid,
-            walletAdjusted: contribution.amountPaid > 0,
-          },
+      await contribRepo.createAuditLogInTx(tx, {
+        action: "CANCEL_CONTRIBUTION",
+        resource: "contribution",
+        resourceId: contributionId,
+        userId: currentUserId,
+        organizationId,
+        membershipId: currentMembership.id,
+        financialImpact: -contribution.amountPaid,
+        details: {
+          reason,
+          amountPaid: contribution.amountPaid,
+          walletAdjusted: contribution.amountPaid > 0,
         },
       });
 

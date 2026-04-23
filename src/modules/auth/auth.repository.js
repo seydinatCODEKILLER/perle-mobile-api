@@ -6,12 +6,18 @@ export class AuthRepository extends BaseRepository {
     super(prisma.user);
   }
 
+  // ─── Users ────────────────────────────────────────────────────
+
   async findByPhone(phone) {
     return prisma.user.findUnique({ where: { phone } });
   }
 
   async findByEmail(email) {
     return prisma.user.findUnique({ where: { email } });
+  }
+
+  async findById(id) {
+    return prisma.user.findUnique({ where: { id } });
   }
 
   async findByIdWithMemberships(id) {
@@ -45,6 +51,67 @@ export class AuthRepository extends BaseRepository {
             },
           },
         },
+      },
+    });
+  }
+
+  async createUser(data) {
+    return prisma.user.create({
+      data,
+      select: {
+        id: true,
+        prenom: true,
+        nom: true,
+        email: true,
+        phone: true,
+        role: true,
+        avatar: true,
+        gender: true,
+        isActive: true,
+        canCreateOrganization: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+    });
+  }
+
+  async updateProfile(userId, data) {
+    return prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        prenom: true,
+        nom: true,
+        email: true,
+        phone: true,
+        role: true,
+        avatar: true,
+        gender: true,
+        isActive: true,
+        canCreateOrganization: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+      },
+    });
+  }
+
+  async updateCanCreateOrganization(userId, canCreateOrganization) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { canCreateOrganization },
+      select: {
+        id: true,
+        prenom: true,
+        nom: true,
+        email: true,
+        role: true,
+        avatar: true,
+        gender: true,
+        isActive: true,
+        canCreateOrganization: true,
+        createdAt: true,
       },
     });
   }
@@ -133,5 +200,11 @@ export class AuthRepository extends BaseRepository {
         },
       },
     });
+  }
+
+  // ─── Audit Log ────────────────────────────────────────────────
+
+  async createAuditLog(data) {
+    return prisma.auditLog.create({ data });
   }
 }

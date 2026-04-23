@@ -6,6 +6,18 @@ export class ContributionPlanRepository extends BaseRepository {
     super(prisma.contributionPlan);
   }
 
+  // ─── Contribution Plans ───────────────────────────────────────
+
+  async createPlan(data) {
+    return prisma.contributionPlan.create({ data });
+  }
+
+  async findPlanByIdAndOrg(planId, organizationId) {
+    return prisma.contributionPlan.findFirst({
+      where: { id: planId, organizationId },
+    });
+  }
+
   async findByIdWithDetails(planId, organizationId) {
     return prisma.contributionPlan.findFirst({
       where: { id: planId, organizationId },
@@ -62,6 +74,22 @@ export class ContributionPlanRepository extends BaseRepository {
     return { plans, total };
   }
 
+  async updatePlan(planId, data) {
+    return prisma.contributionPlan.update({
+      where: { id: planId },
+      data,
+    });
+  }
+
+  async togglePlanStatus(planId, isActive) {
+    return prisma.contributionPlan.update({
+      where: { id: planId },
+      data: { isActive },
+    });
+  }
+
+  // ─── Membership ───────────────────────────────────────────────
+
   async requireMembership(userId, organizationId, roles = []) {
     return prisma.membership.findFirst({
       where: {
@@ -73,11 +101,10 @@ export class ContributionPlanRepository extends BaseRepository {
     });
   }
 
-  // ─── Lifecycle Helpers ────────────────────────────────────────
-
-  async findActivePlan(planId, organizationId) {
-    return prisma.contributionPlan.findFirst({
-      where: { id: planId, organizationId, isActive: true },
+  async findMemberForAssignment(membershipId) {
+    return prisma.membership.findUnique({
+      where: { id: membershipId },
+      include: { user: { select: { gender: true, prenom: true, nom: true } } },
     });
   }
 
@@ -85,6 +112,14 @@ export class ContributionPlanRepository extends BaseRepository {
     return prisma.membership.findMany({
       where: { organizationId, status: "ACTIVE" },
       include: { user: { select: { gender: true, prenom: true, nom: true } } },
+    });
+  }
+
+  // ─── Contributions ────────────────────────────────────────────
+
+  async findActivePlan(planId, organizationId) {
+    return prisma.contributionPlan.findFirst({
+      where: { id: planId, organizationId, isActive: true },
     });
   }
 
@@ -108,13 +143,6 @@ export class ContributionPlanRepository extends BaseRepository {
     });
   }
 
-  async findMemberForAssignment(membershipId) {
-    return prisma.membership.findUnique({
-      where: { id: membershipId },
-      include: { user: { select: { gender: true, prenom: true, nom: true } } },
-    });
-  }
-
   async findExistingContributionForPeriod(
     membershipId,
     planId,
@@ -131,6 +159,38 @@ export class ContributionPlanRepository extends BaseRepository {
     });
   }
 
+  async createContribution(data) {
+    return prisma.contribution.create({
+      data,
+      include: {
+        membership: {
+          include: {
+            user: {
+              select: { prenom: true, nom: true, gender: true },
+            },
+          },
+        },
+        contributionPlan: {
+          select: { name: true, frequency: true },
+        },
+      },
+    });
+  }
+
+  async createManyContributions(tx, data) {
+    return tx.contribution.createMany({ data });
+  }
+
+  async deleteManyContributions(tx, planId, organizationId, dueDateRange) {
+    return tx.contribution.deleteMany({
+      where: {
+        contributionPlanId: planId,
+        organizationId,
+        dueDate: dueDateRange,
+      },
+    });
+  }
+
   async findContributionWithMember(contributionId) {
     return prisma.contribution.findUnique({
       where: { id: contributionId },
@@ -139,6 +199,33 @@ export class ContributionPlanRepository extends BaseRepository {
           include: { user: { select: { prenom: true, nom: true } } },
         },
       },
+    });
+  }
+
+  async updateContributionStatus(contributionId, status) {
+    return prisma.contribution.update({
+      where: { id: contributionId },
+      data: { status },
+    });
+  }
+
+  // ─── Audit Log ────────────────────────────────────────────────
+
+  async createAuditLog(data) {
+    return prisma.auditLog.create({ data });
+  }
+
+  async createAuditLogInTx(tx, data) {
+    return tx.auditLog.create({ data });
+  }
+
+  async markOverdue() {
+    return prisma.contribution.updateMany({
+      where: {
+        status: { in: ["PENDING", "PARTIAL"] },
+        dueDate: { lt: new Date() },
+      },
+      data: { status: "OVERDUE" },
     });
   }
 }

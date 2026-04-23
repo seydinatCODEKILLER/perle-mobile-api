@@ -1,4 +1,3 @@
-// src/modules/subscriptions/subscription.service.js
 import { SubscriptionRepository } from "./subscription.repository.js";
 import { ForbiddenError, ConflictError, BadRequestError } from "../../shared/errors/AppError.js";
 

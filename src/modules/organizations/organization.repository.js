@@ -6,6 +6,21 @@ export class OrganizationRepository extends BaseRepository {
     super(prisma.organization);
   }
 
+  // ─── Organization ─────────────────────────────────────────────
+
+  async countActiveByOwner(ownerId) {
+    return prisma.organization.count({
+      where: { ownerId, isActive: true },
+    });
+  }
+
+  async findOwnerPermissions(ownerId) {
+    return prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { canCreateOrganization: true },
+    });
+  }
+
   async findByIdWithDetails(organizationId, userId) {
     const [organization, membership] = await Promise.all([
       prisma.organization.findUnique({
@@ -143,6 +158,60 @@ export class OrganizationRepository extends BaseRepository {
     return { organizations, total };
   }
 
+  async findByIdWithLogo(organizationId) {
+    return prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { logo: true },
+    });
+  }
+
+  async findByIdWithWallet(organizationId) {
+    return prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { owner: true, wallet: true },
+    });
+  }
+
+  async findByIdWithSettings(organizationId) {
+    return prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: { settings: true },
+    });
+  }
+
+  async updateOrganization(organizationId, data) {
+    return prisma.organization.update({
+      where: { id: organizationId, isActive: true },
+      data,
+      include: {
+        owner: {
+          select: { id: true, prenom: true, nom: true, email: true },
+        },
+        settings: true,
+        subscription: true,
+      },
+    });
+  }
+
+  async updateSettings(settingsId, data) {
+    return prisma.organizationSettings.update({
+      where: { id: settingsId },
+      data,
+    });
+  }
+
+  async setActiveStatus(organizationId, isActive) {
+    return prisma.organization.update({
+      where: { id: organizationId },
+      data: { isActive },
+      include: {
+        owner: { select: { id: true, prenom: true, nom: true, email: true } },
+      },
+    });
+  }
+
+  // ─── Membership ───────────────────────────────────────────────
+
   async findAdminMembership(userId, organizationId) {
     return prisma.membership.findFirst({
       where: {
@@ -153,6 +222,33 @@ export class OrganizationRepository extends BaseRepository {
       },
     });
   }
+
+  async findActiveMembership(userId, organizationId) {
+    return prisma.membership.findFirst({
+      where: { userId, organizationId, status: "ACTIVE" },
+    });
+  }
+
+  // ─── Wallet ───────────────────────────────────────────────────
+
+  async updateWalletBalance(organizationId, data) {
+    return prisma.organizationWallet.update({
+      where: { organizationId },
+      data,
+    });
+  }
+
+  // ─── Audit Log ────────────────────────────────────────────────
+
+  async createAuditLog(data) {
+    return prisma.auditLog.create({ data });
+  }
+
+  async createAuditLogInTx(tx, data) {
+    return tx.auditLog.create({ data });
+  }
+
+  // ─── Stats ────────────────────────────────────────────────────
 
   async getStats(organizationId) {
     const [

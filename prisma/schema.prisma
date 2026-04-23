@@ -1,5 +1,5 @@
 // ======================================================
-//  PRISMA SCHEMA — SaaS Multi-tenant (Prisma 6 compatible)
+//  PRISMA SCHEMA — SaaS Multi-tenant (PostgreSQL)
 // ======================================================
 
 generator client {
@@ -7,8 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ======================================================
@@ -200,7 +201,7 @@ enum EventStatus {
 }
 
 enum AttendanceStatus {
-  INVITED 
+  INVITED
   PENDING
   GOING
   MAYBE
@@ -217,14 +218,14 @@ enum EventVisibility {
 // ======================================================
 
 model User {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  id            String      @id @default(uuid())
   email         String?     @unique
   password      String?
   prenom        String
   nom           String
   phone         String      @unique
   avatar        String?
-  gender        Gender? 
+  gender        Gender?
   role          UserRole    @default(MEMBER)
   isActive      Boolean     @default(true)
   canCreateOrganization Boolean @default(true)
@@ -233,7 +234,7 @@ model User {
   organizations Organization[] @relation("OwnedOrganizations")
   auditLogs     AuditLog[]
   refreshTokens RefreshToken[]
-  pushTokens    PushToken[] 
+  pushTokens    PushToken[]
 
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -247,14 +248,14 @@ model User {
 // ======================================================
 
 model RefreshToken {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @id @default(uuid())
   token        String   @unique
-  userId       String   @db.ObjectId
+  userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt    DateTime
   isRevoked    Boolean  @default(false)
   createdAt    DateTime @default(now())
-  
+
   @@index([userId])
   @@map("refresh_tokens")
 }
@@ -264,7 +265,7 @@ model RefreshToken {
 // ======================================================
 
 model Organization {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  id            String      @id @default(uuid())
   name          String
   description   String?
   type          OrganizationType
@@ -272,10 +273,10 @@ model Organization {
   currency      String      @default("XOF")
   memberCounter Int         @default(0)
 
-  ownerId       String      @db.ObjectId
+  ownerId       String
   owner         User        @relation("OwnedOrganizations", fields: [ownerId], references: [id])
 
-  settingsId    String      @unique @db.ObjectId
+  settingsId    String      @unique
   settings      OrganizationSettings @relation(fields: [settingsId], references: [id])
 
   address       String?
@@ -308,7 +309,7 @@ model Organization {
 // ======================================================
 
 model OrganizationSettings {
-  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  id                    String    @id @default(uuid())
 
   allowPartialPayments  Boolean   @default(false)
   autoReminders         Boolean   @default(true)
@@ -330,23 +331,23 @@ model OrganizationSettings {
 // ======================================================
 
 model Membership {
-  id             String         @id @default(auto()) @map("_id") @db.ObjectId
-  userId         String?        @db.ObjectId           
-  organizationId String         @db.ObjectId
+  id             String         @id @default(uuid())
+  userId         String?
+  organizationId String
   role           MembershipRole @default(MEMBER)
   loginId        String         @unique
   memberNumber   String?
-  
-  provisionalFirstName String?   
-  provisionalLastName  String?  
-  provisionalPhone     String?   
-  provisionalEmail     String?  
+
+  provisionalFirstName String?
+  provisionalLastName  String?
+  provisionalPhone     String?
+  provisionalEmail     String?
   provisionalAvatar    String?
   provisionalGender    String?
-  
+
   joinDate       DateTime       @default(now())
   status         MembershipStatus @default(ACTIVE)
-  
+
   // Relations
   user           User?          @relation(fields: [userId], references: [id])
   organization   Organization   @relation(fields: [organizationId], references: [id])
@@ -360,11 +361,11 @@ model Membership {
   createdExpenses Expense[] @relation("CreatedExpenses")
   approvedExpenses Expense[] @relation("ApprovedExpenses")
   createdEvents   Event[] @relation("CreatedEvents")
-  eventAttendances EventAttendee[] 
-  
+  eventAttendances EventAttendee[]
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  
+
   @@unique([organizationId, memberNumber])
   @@index([provisionalPhone])
   @@map("memberships")
@@ -375,8 +376,8 @@ model Membership {
 // ======================================================
 
 model MemberProfile {
-  id           String      @id @default(auto()) @map("_id") @db.ObjectId
-  membershipId String      @unique @db.ObjectId
+  id           String      @id @default(uuid())
+  membershipId String      @unique
 
   membership   Membership  @relation(fields: [membershipId], references: [id])
 
@@ -398,12 +399,12 @@ model MemberProfile {
 // ======================================================
 
 model ContributionPlan {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  id             String        @id @default(uuid())
   name           String
   description    String?
-   amount        Float? 
+  amount         Float?
   amountMale     Float?
-  amountFemale   Float?  
+  amountFemale   Float?
   differentiateByGender  Boolean   @default(false)
   frequency      ContributionFrequency
   currency       String @default("XOF")
@@ -412,7 +413,7 @@ model ContributionPlan {
   startDate      DateTime
   endDate        DateTime?
 
-  organizationId String @db.ObjectId
+  organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
   contributions  Contribution[]
@@ -428,25 +429,25 @@ model ContributionPlan {
 // ======================================================
 
 model Contribution {
-  id                  String            @id @default(auto()) @map("_id") @db.ObjectId
-  membershipId        String            @db.ObjectId
-  contributionPlanId  String            @db.ObjectId
-  organizationId      String            @db.ObjectId
+  id                  String            @id @default(uuid())
+  membershipId        String
+  contributionPlanId  String
+  organizationId      String
   amount              Float
   amountPaid          Float             @default(0)
   paymentDate         DateTime?
   dueDate             DateTime
   status              ContributionStatus @default(PENDING)
   paymentMethod       PaymentMethod?
-  transactionId       String?           @db.ObjectId
-  
+  transactionId       String?
+
   membership          Membership        @relation(fields: [membershipId], references: [id])
   contributionPlan    ContributionPlan  @relation(fields: [contributionPlanId], references: [id])
   organization        Organization      @relation(fields: [organizationId], references: [id])
   transaction         Transaction?      @relation(fields: [transactionId], references: [id])
-  
+
   partialPayments     PartialPayment[]
-  
+
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -460,8 +461,8 @@ model Contribution {
 // ======================================================
 
 model PartialPayment {
-  id              String     @id @default(auto()) @map("_id") @db.ObjectId
-  contributionId  String     @db.ObjectId
+  id              String     @id @default(uuid())
+  contributionId  String
 
   amount          Float
   paymentDate     DateTime   @default(now())
@@ -477,10 +478,10 @@ model PartialPayment {
 // ======================================================
 
 model Debt {
-  id              String     @id @default(auto()) @map("_id") @db.ObjectId
+  id              String     @id @default(uuid())
 
-  membershipId    String     @db.ObjectId
-  organizationId  String     @db.ObjectId
+  membershipId    String
+  organizationId  String
 
   title           String
   description     String?
@@ -505,14 +506,14 @@ model Debt {
 // ======================================================
 
 model Repayment {
-  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  id             String     @id @default(uuid())
 
-  debtId         String     @db.ObjectId
+  debtId         String
   amount         Float
   paymentDate    DateTime   @default(now())
   paymentMethod  PaymentMethod?
 
-  transactionId  String?    @unique @db.ObjectId
+  transactionId  String?    @unique
 
   debt           Debt       @relation(fields: [debtId], references: [id])
   transaction    Transaction? @relation(fields: [transactionId], references: [id])
@@ -525,10 +526,10 @@ model Repayment {
 // ======================================================
 
 model Transaction {
-  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  id             String     @id @default(uuid())
 
-  organizationId String     @db.ObjectId
-  membershipId   String?    @db.ObjectId
+  organizationId String
+  membershipId   String?
 
   type           TransactionType
   amount         Float
@@ -543,8 +544,8 @@ model Transaction {
 
   organization   Organization @relation(fields: [organizationId], references: [id])
   membership     Membership?  @relation(fields: [membershipId], references: [id])
-  walletId       String?    @db.ObjectId
-  wallet   OrganizationWallet? @relation(fields: [walletId], references: [id])
+  walletId       String?
+  wallet         OrganizationWallet? @relation(fields: [walletId], references: [id])
   contributions  Contribution[]
   repayment      Repayment?
   expense        Expense[]
@@ -562,9 +563,9 @@ model Transaction {
 // ======================================================
 
 model OrganizationWallet {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  id              String   @id @default(uuid())
 
-  organizationId  String   @unique @db.ObjectId
+  organizationId  String   @unique
   organization    Organization @relation(fields: [organizationId], references: [id])
 
   initialBalance  Float    @default(0)
@@ -589,14 +590,14 @@ model OrganizationWallet {
 // ======================================================
 
 model Expense {
-  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  id              String          @id @default(uuid())
 
-  organizationId  String          @db.ObjectId
-  walletId        String          @db.ObjectId
-  createdById     String          @db.ObjectId
-  transactionId   String?         @db.ObjectId
-  approvedById    String?         @db.ObjectId
-  eventId         String?         @db.ObjectId
+  organizationId  String
+  walletId        String
+  createdById     String
+  transactionId   String?
+  approvedById    String?
+  eventId         String?
 
   title           String
   description     String?
@@ -614,7 +615,7 @@ model Expense {
   approvedBy      Membership?     @relation("ApprovedExpenses", fields: [approvedById], references: [id])
   transaction     Transaction?    @relation(fields: [transactionId], references: [id])
   event           Event?          @relation("EventExpenses", fields: [eventId], references: [id])
-  
+
   attachments     ExpenseAttachment[]
 
   createdAt       DateTime        @default(now())
@@ -633,20 +634,20 @@ model Expense {
 // ======================================================
 
 model ExpenseAttachment {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  expenseId       String   @db.ObjectId
-  
+  id              String   @id @default(uuid())
+  expenseId       String
+
   fileName        String
   fileUrl         String
   fileType        String
   fileSize        Int?
-  
-  uploadedById    String   @db.ObjectId
+
+  uploadedById    String
   uploadedBy      Membership @relation(fields: [uploadedById], references: [id])
   expense         Expense  @relation(fields: [expenseId], references: [id])
-  
+
   createdAt       DateTime @default(now())
-  
+
   @@index([expenseId])
   @@map("expense_attachments")
 }
@@ -656,9 +657,9 @@ model ExpenseAttachment {
 // ======================================================
 
 model Notification {
-  id             String          @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId String          @db.ObjectId
-  membershipId   String?         @db.ObjectId
+  id             String          @id @default(uuid())
+  organizationId String
+  membershipId   String?
 
   type           NotificationType
   title          String
@@ -669,7 +670,7 @@ model Notification {
   status         NotificationStatus @default(PENDING)
   sentAt         DateTime?
 
-  relatedId      String?     
+  relatedId      String?
   relatedType    String?
 
   organization   Organization @relation(fields: [organizationId], references: [id])
@@ -685,8 +686,8 @@ model Notification {
 // ======================================================
 
 model Subscription {
-  id             String       @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId String       @unique @db.ObjectId
+  id             String       @id @default(uuid())
+  organizationId String       @unique
 
   organization   Organization @relation(fields: [organizationId], references: [id])
 
@@ -713,11 +714,11 @@ model Subscription {
 // ======================================================
 
 model AuditLog {
-  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  id             String     @id @default(uuid())
 
-  organizationId String?    @db.ObjectId
-  userId         String     @db.ObjectId
-  membershipId   String?    @db.ObjectId
+  organizationId String?
+  userId         String
+  membershipId   String?
 
   action         String
   resource       String
@@ -745,11 +746,14 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// ======================================================
+//  PUSH TOKENS
+// ======================================================
 
 model PushToken {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String   @id @default(uuid())
 
-  userId      String   @db.ObjectId
+  userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   token       String   @unique
@@ -770,9 +774,9 @@ model PushToken {
 // ======================================================
 
 model Event {
-  id              String      @id @default(auto()) @map("_id") @db.ObjectId
-  organizationId  String      @db.ObjectId
-  createdById     String      @db.ObjectId
+  id              String      @id @default(uuid())
+  organizationId  String
+  createdById     String
 
   title           String
   description     String?
@@ -784,7 +788,7 @@ model Event {
   endDate         DateTime?
   location        String?
   locationUrl     String?
-  
+
   isOnline        Boolean     @default(false)
   meetingLink     String?
 
@@ -813,9 +817,9 @@ model Event {
 // ======================================================
 
 model EventAttendee {
-  id             String           @id @default(auto()) @map("_id") @db.ObjectId
-  eventId        String           @db.ObjectId
-  membershipId   String           @db.ObjectId
+  id             String           @id @default(uuid())
+  eventId        String
+  membershipId   String
 
   status         AttendanceStatus @default(PENDING)
   respondedAt    DateTime?

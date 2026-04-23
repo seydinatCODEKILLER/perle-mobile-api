@@ -1,5 +1,4 @@
 import { ContributionPlanRepository } from "./contribution-plan.repository.js";
-import { prisma } from "../../config/database.js";
 import {
   NotFoundError,
   ForbiddenError,
@@ -65,27 +64,24 @@ export class ContributionPlanService {
       endDate: safeDate(data.endDate),
       currency: data.currency || "XOF",
       organizationId,
-      // ✅ Montants nettoyés selon le mode
       amount: data.differentiateByGender ? null : safeFloat(data.amount),
       amountMale: data.differentiateByGender ? safeFloat(data.amountMale) : null,
       amountFemale: data.differentiateByGender ? safeFloat(data.amountFemale) : null,
     };
 
-    const plan = await prisma.contributionPlan.create({ data: createData });
+    const plan = await planRepo.createPlan(createData);
 
-    await prisma.auditLog.create({
-      data: {
-        action: "CREATE_CONTRIBUTION_PLAN",
-        resource: "contribution_plan",
-        resourceId: plan.id,
-        userId,
-        organizationId,
-        membershipId: membership.id,
-        details: {
-          name: plan.name,
-          frequency: plan.frequency,
-          differentiateByGender: plan.differentiateByGender,
-        },
+    await planRepo.createAuditLog({
+      action: "CREATE_CONTRIBUTION_PLAN",
+      resource: "contribution_plan",
+      resourceId: plan.id,
+      userId,
+      organizationId,
+      membershipId: membership.id,
+      details: {
+        name: plan.name,
+        frequency: plan.frequency,
+        differentiateByGender: plan.differentiateByGender,
       },
     });
 
@@ -100,7 +96,6 @@ export class ContributionPlanService {
     const plan = await planRepo.findByIdWithDetails(planId, organizationId);
     if (!plan) throw new NotFoundError("Plan de cotisation");
 
-    // ✅ Enrichir les contributions avec displayInfo
     const enrichedContributions = plan.contributions.map((contribution) => ({
       ...contribution,
       membership: {
@@ -140,9 +135,7 @@ export class ContributionPlanService {
     );
     if (!membership) throw new ForbiddenError("Accès non autorisé");
 
-    const plan = await prisma.contributionPlan.findFirst({
-      where: { id: planId, organizationId },
-    });
+    const plan = await planRepo.findPlanByIdAndOrg(planId, organizationId);
     if (!plan) throw new NotFoundError("Plan de cotisation");
 
     const updatePayload = {};
@@ -155,12 +148,10 @@ export class ContributionPlanService {
     if (data.startDate !== undefined) updatePayload.startDate = safeDate(data.startDate);
     if (data.endDate !== undefined) updatePayload.endDate = safeDate(data.endDate);
 
-    // ✅ Gestion des montants selon le mode
     const willDifferentiate = data.differentiateByGender ?? plan.differentiateByGender;
 
     if (data.differentiateByGender !== undefined) {
       updatePayload.differentiateByGender = data.differentiateByGender;
-
       if (data.differentiateByGender) {
         updatePayload.amountMale = safeFloat(data.amountMale);
         updatePayload.amountFemale = safeFloat(data.amountFemale);
@@ -171,7 +162,6 @@ export class ContributionPlanService {
         updatePayload.amountFemale = null;
       }
     } else {
-      // Garder le mode actuel
       if (willDifferentiate) {
         if (data.amountMale !== undefined) updatePayload.amountMale = safeFloat(data.amountMale);
         if (data.amountFemale !== undefined) updatePayload.amountFemale = safeFloat(data.amountFemale);
@@ -180,21 +170,16 @@ export class ContributionPlanService {
       }
     }
 
-    const updated = await prisma.contributionPlan.update({
-      where: { id: planId },
-      data: updatePayload,
-    });
+    const updated = await planRepo.updatePlan(planId, updatePayload);
 
-    await prisma.auditLog.create({
-      data: {
-        action: "UPDATE_CONTRIBUTION_PLAN",
-        resource: "contribution_plan",
-        resourceId: planId,
-        userId,
-        organizationId,
-        membershipId: membership.id,
-        details: { updatedFields: Object.keys(updatePayload) },
-      },
+    await planRepo.createAuditLog({
+      action: "UPDATE_CONTRIBUTION_PLAN",
+      resource: "contribution_plan",
+      resourceId: planId,
+      userId,
+      organizationId,
+      membershipId: membership.id,
+      details: { updatedFields: Object.keys(updatePayload) },
     });
 
     return updated;
@@ -207,26 +192,19 @@ export class ContributionPlanService {
     );
     if (!membership) throw new ForbiddenError("Accès non autorisé");
 
-    const plan = await prisma.contributionPlan.findFirst({
-      where: { id: planId, organizationId },
-    });
+    const plan = await planRepo.findPlanByIdAndOrg(planId, organizationId);
     if (!plan) throw new NotFoundError("Plan de cotisation");
 
-    const updated = await prisma.contributionPlan.update({
-      where: { id: planId },
-      data: { isActive: !plan.isActive },
-    });
+    const updated = await planRepo.togglePlanStatus(planId, !plan.isActive);
 
-    await prisma.auditLog.create({
-      data: {
-        action: updated.isActive ? "ACTIVATE_PLAN" : "DEACTIVATE_PLAN",
-        resource: "contribution_plan",
-        resourceId: planId,
-        userId,
-        organizationId,
-        membershipId: membership.id,
-        details: { isActive: updated.isActive },
-      },
+    await planRepo.createAuditLog({
+      action: updated.isActive ? "ACTIVATE_PLAN" : "DEACTIVATE_PLAN",
+      resource: "contribution_plan",
+      resourceId: planId,
+      userId,
+      organizationId,
+      membershipId: membership.id,
+      details: { isActive: updated.isActive },
     });
 
     return updated;

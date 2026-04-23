@@ -48,7 +48,7 @@ class MediaUploader {
     if (!uploadInfo) return;
 
     try {
-      await cloudinary.uploader.destroy(uploadInfo.public_id, { resource_type: "auto" });
+      await cloudinary.uploader.destroy(uploadInfo.public_id, { resource_type: "image" });
       this.uploadResults.delete(prefix);
       console.log(`Rollback successful - deleted: ${uploadInfo.public_id}`);
     } catch (error) {
@@ -60,14 +60,13 @@ class MediaUploader {
     if (!url) return;
 
     try {
-      // Exemple URL: https://res.cloudinary.com/demo/image/upload/v12345/organize/members/avatar_123.jpg
       const urlParts = url.split('/');
       const uploadIndex = urlParts.indexOf('upload');
       const publicIdWithExtension = urlParts.slice(uploadIndex + 2).join('/');
       const publicId = publicIdWithExtension.substring(0, publicIdWithExtension.lastIndexOf('.'));
 
       if (publicId) {
-        await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+        await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
         console.log(`Deleted media: ${publicId}`);
       }
     } catch (error) {
