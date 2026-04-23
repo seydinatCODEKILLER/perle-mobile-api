@@ -1,4 +1,3 @@
-// src/modules/subscriptions/subscription.schema.js
 import { z } from "zod";
 
 const SUBSCRIPTION_PLANS = ["FREE", "BASIC", "PREMIUM", "ENTERPRISE"];

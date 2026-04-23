@@ -276,4 +276,17 @@ export class NotificationRepository extends BaseRepository {
     });
     return invitees.map((i) => i.membershipId);
   }
+
+  async deleteOldDelivered(daysOld) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysOld);
+    cutoff.setHours(0, 0, 0, 0);
+
+    return prisma.notification.deleteMany({
+      where: {
+        status: "DELIVERED",
+        createdAt: { lt: cutoff },
+      },
+    });
+  }
 }

@@ -1,6 +1,5 @@
 import { MembershipRepository } from "./membership.repository.js";
 import MediaUploader from "../../shared/utils/uploader.js";
-import { prisma } from "../../config/database.js";
 import {
   ForbiddenError,
   NotFoundError,
@@ -14,11 +13,7 @@ const generateLoginId = () =>
   Math.random().toString(36).substring(2, 10).toUpperCase();
 
 const generateMemberNumber = async (organizationId) => {
-  const org = await prisma.organization.update({
-    where: { id: organizationId },
-    data: { memberCounter: { increment: 1 } },
-    select: { memberCounter: true },
-  });
+  const org = await membershipRepo.incrementMemberCounter(organizationId);
   return `MBR${organizationId.slice(-6)}${org.memberCounter.toString().padStart(3, "0")}`;
 };
 
@@ -77,7 +72,7 @@ export class MembershipService {
     currentMembershipId,
     data,
   ) {
-    const user = await prisma.user.findUnique({ where: { phone: data.phone } });
+    const user = await membershipRepo.findUserByPhone(data.phone);
     if (!user)
       throw new NotFoundError(
         "Aucun utilisateur trouvé avec ce numéro de téléphone",
@@ -92,46 +87,28 @@ export class MembershipService {
         "Cet utilisateur est déjà membre de cette organisation",
       );
 
-    const membership = await prisma.membership.create({
-      data: {
-        userId: user.id,
-        organizationId,
-        role: data.role || "MEMBER",
-        memberNumber: await generateMemberNumber(organizationId),
-        loginId: generateLoginId(),
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-            email: true,
-            phone: true,
-            avatar: true,
-            gender: true,
-          },
-        },
-        organization: { select: { id: true, name: true } },
-      },
+    const membership = await membershipRepo.createMembership({
+      userId: user.id,
+      organizationId,
+      role: data.role || "MEMBER",
+      memberNumber: await generateMemberNumber(organizationId),
+      loginId: generateLoginId(),
     });
 
     await membershipRepo.updateSubscriptionUsage(organizationId, 1);
 
-    await prisma.auditLog.create({
-      data: {
-        action: "CREATE_MEMBERSHIP",
-        resource: "membership",
-        resourceId: membership.id,
-        userId: currentUserId,
-        organizationId,
-        membershipId: currentMembershipId,
-        details: {
-          userId: membership.userId,
-          role: membership.role,
-          memberNumber: membership.memberNumber,
-          type: "with_account",
-        },
+    await membershipRepo.createAuditLog({
+      action: "CREATE_MEMBERSHIP",
+      resource: "membership",
+      resourceId: membership.id,
+      userId: currentUserId,
+      organizationId,
+      membershipId: currentMembershipId,
+      details: {
+        userId: membership.userId,
+        role: membership.role,
+        memberNumber: membership.memberNumber,
+        type: "with_account",
       },
     });
 
@@ -150,7 +127,7 @@ export class MembershipService {
     let avatarPrefix = null;
 
     const [existingUser, existingProvisional] = await Promise.all([
-      prisma.user.findUnique({ where: { phone: provisionalData.phone } }),
+      membershipRepo.findUserByPhone(provisionalData.phone),
       membershipRepo.findProvisionalByPhone(
         organizationId,
         provisionalData.phone,
@@ -178,40 +155,35 @@ export class MembershipService {
         );
       }
 
-      const membership = await prisma.membership.create({
-        data: {
-          userId: null,
-          organizationId,
-          role: data.role || "MEMBER",
-          memberNumber: await generateMemberNumber(organizationId),
-          loginId: generateLoginId(),
-          provisionalFirstName: provisionalData.firstName,
-          provisionalLastName: provisionalData.lastName,
-          provisionalPhone: provisionalData.phone,
-          provisionalEmail: provisionalData.email || null,
-          provisionalAvatar: avatarUrl,
-          provisionalGender: provisionalData.gender || null,
-        },
-        include: { organization: { select: { id: true, name: true } } },
+      const membership = await membershipRepo.createProvisionalMembership({
+        userId: null,
+        organizationId,
+        role: data.role || "MEMBER",
+        memberNumber: await generateMemberNumber(organizationId),
+        loginId: generateLoginId(),
+        provisionalFirstName: provisionalData.firstName,
+        provisionalLastName: provisionalData.lastName,
+        provisionalPhone: provisionalData.phone,
+        provisionalEmail: provisionalData.email || null,
+        provisionalAvatar: avatarUrl,
+        provisionalGender: provisionalData.gender || null,
       });
 
       await membershipRepo.updateSubscriptionUsage(organizationId, 1);
 
-      await prisma.auditLog.create({
-        data: {
-          action: "CREATE_MEMBERSHIP",
-          resource: "membership",
-          resourceId: membership.id,
-          userId: currentUserId,
-          organizationId,
-          membershipId: currentMembershipId,
-          details: {
-            role: membership.role,
-            memberNumber: membership.memberNumber,
-            type: "provisional",
-            phone: membership.provisionalPhone,
-            hasAvatar: !!avatarUrl,
-          },
+      await membershipRepo.createAuditLog({
+        action: "CREATE_MEMBERSHIP",
+        resource: "membership",
+        resourceId: membership.id,
+        userId: currentUserId,
+        organizationId,
+        membershipId: currentMembershipId,
+        details: {
+          role: membership.role,
+          memberNumber: membership.memberNumber,
+          type: "provisional",
+          phone: membership.provisionalPhone,
+          hasAvatar: !!avatarUrl,
         },
       });
 
@@ -330,23 +302,10 @@ export class MembershipService {
     if (!existing || existing.organizationId !== organizationId)
       throw new NotFoundError("Membre");
 
-    const updated = await prisma.membership.update({
-      where: { id: membershipId },
-      data: updateData,
-      include: {
-        user: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-            email: true,
-            phone: true,
-            avatar: true,
-            gender: true,
-          },
-        },
-      },
-    });
+    const updated = await membershipRepo.updateMembership(
+      membershipId,
+      updateData,
+    );
 
     await this.#createAuditLog(
       organizationId,
@@ -380,9 +339,7 @@ export class MembershipService {
     if (!currentMembership)
       throw new ForbiddenError("Permissions insuffisantes");
 
-    const membership = await prisma.membership.findUnique({
-      where: { id: membershipId },
-    });
+    const membership = await membershipRepo.findById(membershipId);
     if (!membership || membership.organizationId !== organizationId)
       throw new NotFoundError("Membre");
     if (membership.userId !== null)
@@ -390,20 +347,15 @@ export class MembershipService {
         "Ce membre a un compte. Modifiez son profil utilisateur.",
       );
 
-    const updated = await prisma.membership.update({
-      where: { id: membershipId },
-      data: {
-        ...(updateData.firstName && {
-          provisionalFirstName: updateData.firstName,
-        }),
-        ...(updateData.lastName && {
-          provisionalLastName: updateData.lastName,
-        }),
-        ...(updateData.email !== undefined && {
-          provisionalEmail: updateData.email,
-        }),
-        ...(updateData.phone && { provisionalPhone: updateData.phone }),
-      },
+    const updated = await membershipRepo.updateMembership(membershipId, {
+      ...(updateData.firstName && {
+        provisionalFirstName: updateData.firstName,
+      }),
+      ...(updateData.lastName && { provisionalLastName: updateData.lastName }),
+      ...(updateData.email !== undefined && {
+        provisionalEmail: updateData.email,
+      }),
+      ...(updateData.phone && { provisionalPhone: updateData.phone }),
     });
 
     await this.#createAuditLog(
@@ -433,22 +385,8 @@ export class MembershipService {
     if (!existing || existing.organizationId !== organizationId)
       throw new NotFoundError("Membre");
 
-    const updated = await prisma.membership.update({
-      where: { id: membershipId },
-      data: { status },
-      include: {
-        user: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-            email: true,
-            phone: true,
-            avatar: true,
-            gender: true,
-          },
-        },
-      },
+    const updated = await membershipRepo.updateMembership(membershipId, {
+      status,
     });
 
     await this.#createAuditLog(
@@ -470,36 +408,20 @@ export class MembershipService {
   ) {
     if (!role) throw new ConflictError("Le rôle est requis");
 
-    const currentMembership = await this.#checkAdminAccess(
+    await this.#checkAdminAccess(
       organizationId,
       currentUserId,
       "modifier le rôle d'un membre",
     );
-    const existing = await prisma.membership.findUnique({
-      where: { id: membershipId },
-    });
 
+    const existing = await membershipRepo.findById(membershipId);
     if (!existing || existing.organizationId !== organizationId)
       throw new NotFoundError("Membre");
     if (existing.userId === currentUserId)
       throw new ForbiddenError("Vous ne pouvez pas modifier votre propre rôle");
 
-    const updated = await prisma.membership.update({
-      where: { id: membershipId },
-      data: { role },
-      include: {
-        user: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-            email: true,
-            phone: true,
-            avatar: true,
-            gender: true,
-          },
-        },
-      },
+    const updated = await membershipRepo.updateMembership(membershipId, {
+      role,
     });
 
     await this.#createAuditLog(
@@ -520,24 +442,13 @@ export class MembershipService {
       "supprimer un membre",
     );
 
-    const existing = await prisma.membership.findUnique({
-      where: { id: membershipId },
-      include: {
-        user: { select: { id: true, prenom: true, nom: true, email: true } },
-      },
-    });
-
+    const existing = await membershipRepo.findWithDetailsAndUser(membershipId);
     if (!existing || existing.organizationId !== organizationId)
       throw new NotFoundError("Membre");
     if (existing.userId === currentUserId)
       throw new ForbiddenError("Vous ne pouvez pas vous supprimer vous-même");
 
-    const deleted = await prisma.membership.delete({
-      where: { id: membershipId },
-      include: {
-        user: { select: { id: true, prenom: true, nom: true, email: true } },
-      },
-    });
+    const deleted = await membershipRepo.deleteMembership(membershipId);
 
     await membershipRepo.updateSubscriptionUsage(organizationId, -1);
     await this.#createAuditLog(
@@ -555,7 +466,7 @@ export class MembershipService {
     return deleted;
   }
 
-  // ─── Helpers Privés (Permissions & Utils) ────────────────────
+  // ─── Helpers Privés ──────────────────────────────────────────
   async #checkOrgAccess(organizationId, userId) {
     const membership = await membershipRepo.findActiveMembership(
       userId,
@@ -577,15 +488,11 @@ export class MembershipService {
   }
 
   async #checkSubscriptionLimits(organizationId) {
-    const subscription = await prisma.subscription.findUnique({
-      where: { organizationId },
-    });
+    const subscription = await membershipRepo.findSubscription(organizationId);
     if (!subscription)
       throw new NotFoundError("Abonnement non trouvé pour cette organisation");
 
-    const memberCount = await prisma.membership.count({
-      where: { organizationId, status: "ACTIVE" },
-    });
+    const memberCount = await membershipRepo.countActiveMembers(organizationId);
     if (memberCount >= subscription.maxMembers) {
       throw new ConflictError(
         `Limite de membres atteinte (${subscription.maxMembers}). Veuillez mettre à niveau votre abonnement.`,
@@ -594,16 +501,14 @@ export class MembershipService {
   }
 
   async #createAuditLog(organizationId, userId, membershipId, action, details) {
-    await prisma.auditLog.create({
-      data: {
-        action,
-        resource: "membership",
-        resourceId: membershipId,
-        userId,
-        organizationId,
-        membershipId,
-        details,
-      },
+    await membershipRepo.createAuditLog({
+      action,
+      resource: "membership",
+      resourceId: membershipId,
+      userId,
+      organizationId,
+      membershipId,
+      details,
     });
   }
 }

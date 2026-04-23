@@ -18,12 +18,10 @@ const generateLoginId = () =>
 const generateMemberNumber = () => `MBR${Date.now().toString().slice(-6)}`;
 
 export class OrganizationService {
+
   // ─── Créer une organisation ───────────────────────────────────
   async createOrganization(ownerId, data, file) {
-    // ✅ Vérification de la limite
-    const ownedCount = await prisma.organization.count({
-      where: { ownerId, isActive: true },
-    });
+    const ownedCount = await orgRepo.countActiveByOwner(ownerId);
 
     if (ownedCount >= MAX_ORGANIZATIONS_PER_USER) {
       throw new ConflictError(
@@ -32,12 +30,7 @@ export class OrganizationService {
       );
     }
 
-    // ✅ Vérification du droit de créer
-    const user = await prisma.user.findUnique({
-      where: { id: ownerId },
-      select: { canCreateOrganization: true },
-    });
-
+    const user = await orgRepo.findOwnerPermissions(ownerId);
     if (!user?.canCreateOrganization) {
       throw new ForbiddenError(
         "Vous n'êtes pas autorisé à créer une organisation.",
@@ -228,20 +221,14 @@ export class OrganizationService {
 
   // ─── Modifier une organisation ────────────────────────────────
   async updateOrganization(organizationId, userId, data, file) {
-    const membership = await orgRepo.findAdminMembership(
-      userId,
-      organizationId,
-    );
+    const membership = await orgRepo.findAdminMembership(userId, organizationId);
     if (!membership) {
       throw new ForbiddenError(
         "Permissions insuffisantes pour modifier cette organisation",
       );
     }
 
-    const existing = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      select: { logo: true },
-    });
+    const existing = await orgRepo.findByIdWithLogo(organizationId);
 
     const uploader = new MediaUploader();
     let newLogoUrl = null;
@@ -258,19 +245,9 @@ export class OrganizationService {
     }
 
     try {
-      return prisma.organization.update({
-        where: { id: organizationId, isActive: true },
-        data: {
-          ...data,
-          ...(newLogoUrl && { logo: newLogoUrl }),
-        },
-        include: {
-          owner: {
-            select: { id: true, prenom: true, nom: true, email: true },
-          },
-          settings: true,
-          subscription: true,
-        },
+      return orgRepo.updateOrganization(organizationId, {
+        ...data,
+        ...(newLogoUrl && { logo: newLogoUrl }),
       });
     } catch (error) {
       if (newLogoUrl) {
@@ -282,37 +259,24 @@ export class OrganizationService {
 
   // ─── Modifier les settings ────────────────────────────────────
   async updateOrganizationSettings(organizationId, userId, data) {
-    const membership = await orgRepo.findAdminMembership(
-      userId,
-      organizationId,
-    );
+    const membership = await orgRepo.findAdminMembership(userId, organizationId);
     if (!membership) {
       throw new ForbiddenError(
         "Permissions insuffisantes pour modifier les paramètres",
       );
     }
 
-    const organization = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      include: { settings: true },
-    });
-
+    const organization = await orgRepo.findByIdWithSettings(organizationId);
     if (!organization) throw new NotFoundError("Organisation");
 
-    return prisma.organizationSettings.update({
-      where: { id: organization.settingsId },
-      data,
-    });
+    return orgRepo.updateSettings(organization.settingsId, data);
   }
 
   // ─── Désactiver une organisation ──────────────────────────────
   async deactivateOrganization(organizationId, userId) {
-    const organization = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      include: { owner: true, wallet: true },
-    });
-
+    const organization = await orgRepo.findByIdWithWallet(organizationId);
     if (!organization) throw new NotFoundError("Organisation");
+
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
         "Seul le propriétaire peut désactiver l'organisation",
@@ -327,23 +291,14 @@ export class OrganizationService {
       );
     }
 
-    return prisma.organization.update({
-      where: { id: organizationId },
-      data: { isActive: false },
-      include: {
-        owner: { select: { id: true, prenom: true, nom: true, email: true } },
-      },
-    });
+    return orgRepo.setActiveStatus(organizationId, false);
   }
 
   // ─── Réactiver une organisation ───────────────────────────────
   async reactivateOrganization(organizationId, userId) {
-    const organization = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      include: { owner: true },
-    });
-
+    const organization = await orgRepo.findByIdWithWallet(organizationId);
     if (!organization) throw new NotFoundError("Organisation");
+
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
         "Seul le propriétaire peut réactiver l'organisation",
@@ -353,11 +308,7 @@ export class OrganizationService {
       throw new ConflictError("L'organisation est déjà active");
     }
 
-    // ✅ Vérification de la limite avant réactivation
-    const ownedCount = await prisma.organization.count({
-      where: { ownerId: userId, isActive: true },
-    });
-
+    const ownedCount = await orgRepo.countActiveByOwner(userId);
     if (ownedCount >= MAX_ORGANIZATIONS_PER_USER) {
       throw new ConflictError(
         `Vous avez atteint la limite de ${MAX_ORGANIZATIONS_PER_USER} organisations actives. ` +
@@ -365,21 +316,12 @@ export class OrganizationService {
       );
     }
 
-    return prisma.organization.update({
-      where: { id: organizationId },
-      data: { isActive: true },
-      include: {
-        owner: { select: { id: true, prenom: true, nom: true, email: true } },
-      },
-    });
+    return orgRepo.setActiveStatus(organizationId, true);
   }
 
   // ─── Statistiques ─────────────────────────────────────────────
   async getOrganizationStats(organizationId, userId) {
-    const membership = await prisma.membership.findFirst({
-      where: { userId, organizationId, status: "ACTIVE" },
-    });
-
+    const membership = await orgRepo.findActiveMembership(userId, organizationId);
     if (!membership) {
       throw new ForbiddenError("Accès non autorisé à cette organisation");
     }
@@ -389,20 +331,15 @@ export class OrganizationService {
 
   // ─── Solder le wallet ─────────────────────────────────────────
   async settleWallet(organizationId, userId) {
-    const organization = await prisma.organization.findUnique({
-      where: { id: organizationId },
-      include: { owner: true, wallet: true },
-    });
-
+    const organization = await orgRepo.findByIdWithWallet(organizationId);
     if (!organization) throw new NotFoundError("Organisation");
+
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
         "Seul le propriétaire peut solder le portefeuille",
       );
     }
-    if (!organization.wallet) {
-      throw new NotFoundError("Portefeuille");
-    }
+    if (!organization.wallet) throw new NotFoundError("Portefeuille");
     if (organization.wallet.currentBalance === 0) {
       throw new ConflictError("Le portefeuille est déjà soldé (solde = 0)");
     }
@@ -461,10 +398,7 @@ export class OrganizationService {
   // ─── Mettre à jour le wallet ──────────────────────────────────
   async updateWallet(organizationId, userId, data) {
     const [organization, membership] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: organizationId },
-        include: { wallet: true },
-      }),
+      orgRepo.findByIdWithWallet(organizationId),
       orgRepo.findAdminMembership(userId, organizationId),
     ]);
 
@@ -487,18 +421,10 @@ export class OrganizationService {
       const updatedWallet = await tx.organizationWallet.update({
         where: { organizationId },
         data: {
-          ...(data.initialBalance !== undefined && {
-            initialBalance: data.initialBalance,
-          }),
-          ...(data.currentBalance !== undefined && {
-            currentBalance: data.currentBalance,
-          }),
-          ...(data.totalIncome !== undefined && {
-            totalIncome: data.totalIncome,
-          }),
-          ...(data.totalExpenses !== undefined && {
-            totalExpenses: data.totalExpenses,
-          }),
+          ...(data.initialBalance !== undefined && { initialBalance: data.initialBalance }),
+          ...(data.currentBalance !== undefined && { currentBalance: data.currentBalance }),
+          ...(data.totalIncome !== undefined && { totalIncome: data.totalIncome }),
+          ...(data.totalExpenses !== undefined && { totalExpenses: data.totalExpenses }),
         },
       });
 

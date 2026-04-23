@@ -2,6 +2,40 @@ import { z } from "zod";
 
 const FREQUENCIES = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY", "CUSTOM"];
 
+// ─── Helpers de pré-transformation ─────────────────────────────
+const coerceToNumber = (fieldName) =>
+  z.preprocess(
+    (val) => {
+      if (val === "" || val === null || val === undefined) return null;
+      return typeof val === "string" ? parseFloat(val) : val;
+    },
+    z
+      .number({ invalid_type_error: `${fieldName} doit être un nombre` })
+      .positive(`${fieldName} doit être positif`)
+      .nullable()
+      .optional(),
+  );
+
+const coerceToBoolean = (defaultValue) =>
+  z.preprocess((val) => {
+    if (val === undefined) return defaultValue;
+    if (typeof val === "string") return val === "true";
+    return val;
+  }, z.boolean());
+
+const coerceToDate = (fieldName) =>
+  z.preprocess(
+    (val) => {
+      if (!val) return val; // Laisse passer null/undefined pour la logique optionnelle
+      return val;
+    },
+    z.string().refine((val) => !isNaN(Date.parse(val)), {
+      message: `${fieldName} invalide (format attendu: YYYY-MM-DD ou ISO 8601)`,
+    }),
+  );
+
+// ─── Schémas ───────────────────────────────────────────────────
+
 export const createPlanSchema = z.object({
   params: z.object({
     organizationId: z.string().min(1, "ID organisation requis"),
@@ -13,39 +47,25 @@ export const createPlanSchema = z.object({
       frequency: z.enum(FREQUENCIES, {
         errorMap: () => ({ message: "Fréquence invalide" }),
       }),
-      differentiateByGender: z.boolean().default(false),
-      amount: z
-        .number()
-        .positive("Le montant doit être positif")
-        .optional()
-        .nullable(),
-      amountMale: z
-        .number()
-        .positive("Le montant hommes doit être positif")
-        .optional()
-        .nullable(),
-      amountFemale: z
-        .number()
-        .positive("Le montant femmes doit être positif")
-        .optional()
-        .nullable(),
+      differentiateByGender: coerceToBoolean(false),
+      amount: coerceToNumber("Le montant"),
+      amountMale: coerceToNumber("Le montant hommes"),
+      amountFemale: coerceToNumber("Le montant femmes"),
       currency: z.string().default("XOF"),
-      startDate: z.string().datetime({ message: "Date de début invalide" }),
-      endDate: z
-        .string()
-        .datetime()
-        .optional()
-        .or(z.literal(""))
-        .transform((val) => val || null),
-      isActive: z.boolean().default(true),
+      startDate: coerceToDate("La date de début"),
+      endDate: z.preprocess(
+        (val) => (val === "" ? null : val),
+        coerceToDate("La date de fin").nullable().optional(),
+      ),
+      isActive: coerceToBoolean(true),
     })
     // ✅ Validation croisée montants selon differentiateByGender
     .refine(
       (data) => {
         if (data.differentiateByGender) {
-          return !!data.amountMale && !!data.amountFemale;
+          return data.amountMale !== null && data.amountFemale !== null;
         }
-        return !!data.amount;
+        return data.amount !== null;
       },
       (data) => ({
         message: data.differentiateByGender
@@ -57,7 +77,7 @@ export const createPlanSchema = z.object({
     // ✅ endDate doit être après startDate
     .refine(
       (data) => {
-        if (!data.endDate) return true;
+        if (!data.endDate || !data.startDate) return true;
         return new Date(data.endDate) > new Date(data.startDate);
       },
       {
@@ -77,19 +97,17 @@ export const updatePlanSchema = z.object({
       name: z.string().min(2).optional(),
       description: z.string().optional(),
       frequency: z.enum(FREQUENCIES).optional(),
-      differentiateByGender: z.boolean().optional(),
-      amount: z.number().positive().optional().nullable(),
-      amountMale: z.number().positive().optional().nullable(),
-      amountFemale: z.number().positive().optional().nullable(),
+      differentiateByGender: coerceToBoolean(undefined).optional(),
+      amount: coerceToNumber("Le montant"),
+      amountMale: coerceToNumber("Le montant hommes"),
+      amountFemale: coerceToNumber("Le montant femmes"),
       currency: z.string().optional(),
-      startDate: z.string().datetime().optional(),
-      endDate: z
-        .string()
-        .datetime()
-        .optional()
-        .or(z.literal(""))
-        .transform((val) => val || null),
-      isActive: z.boolean().optional(),
+      startDate: coerceToDate("La date de début").optional(),
+      endDate: z.preprocess(
+        (val) => (val === "" ? null : val),
+        coerceToDate("La date de fin").nullable().optional(),
+      ),
+      isActive: coerceToBoolean(undefined).optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "Au moins un champ doit être fourni",
@@ -120,12 +138,14 @@ export const listPlansSchema = z.object({
     page: z
       .string()
       .optional()
-      .transform((v) => (v ? parseInt(v) : 1))
+      .default("1")
+      .transform(Number)
       .pipe(z.number().min(1)),
     limit: z
       .string()
       .optional()
-      .transform((v) => (v ? parseInt(v) : 10))
+      .default("10")
+      .transform(Number)
       .pipe(z.number().min(1).max(100)),
   }),
 });
@@ -136,8 +156,14 @@ export const generateContributionsSchema = z.object({
     id: z.string().min(1),
   }),
   body: z.object({
-    force: z.boolean().default(false),
-    dueDateOffset: z.number().int().min(0).default(0),
+    force: z.preprocess(
+      (val) => (typeof val === "string" ? val === "true" : val),
+      z.boolean().default(false),
+    ),
+    dueDateOffset: z.preprocess(
+      (val) => (typeof val === "string" ? parseInt(val, 10) : val),
+      z.number().int().min(0).default(0),
+    ),
   }),
 });
 

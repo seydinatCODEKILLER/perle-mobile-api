@@ -2,7 +2,6 @@ import { AuthRepository } from "./auth.repository.js";
 import { JwtService } from "../../config/jwt.js";
 import { hashPassword, comparePassword } from "../../shared/utils/hasher.js";
 import MediaUploader from "../../shared/utils/uploader.js";
-import { prisma } from "../../config/database.js";
 import {
   UnauthorizedError,
   ForbiddenError,
@@ -94,33 +93,17 @@ export class AuthService {
     try {
       const hashedPassword = await hashPassword(password);
 
-      const user = await prisma.user.create({
-        data: {
-          prenom,
-          nom,
-          email: email || null,
-          password: hashedPassword,
-          phone,
-          gender: gender || null,
-          avatar: avatarUrl,
-        },
-        select: {
-          id: true,
-          prenom: true,
-          nom: true,
-          email: true,
-          phone: true,
-          role: true,
-          avatar: true,
-          gender: true,
-          isActive: true,
-          canCreateOrganization: true,
-          createdAt: true,
-          lastLoginAt: true,
-        },
+      const user = await authRepo.createUser({
+        prenom,
+        nom,
+        email: email || null,
+        password: hashedPassword,
+        phone,
+        gender: gender || null,
+        avatar: avatarUrl,
       });
 
-      // ✅ Lier les membres provisoires + générer les tokens en parallèle
+      // Lier les membres provisoires + générer les tokens en parallèle
       const [{ accessToken, refreshToken }, linkedMemberships] =
         await Promise.all([
           createTokens(user),
@@ -146,7 +129,7 @@ export class AuthService {
   async login(phone, password) {
     const user = await authRepo.findByPhone(phone);
 
-    // ✅ Timing attack neutralisé — toujours appeler comparePassword
+    // Timing attack neutralisé — toujours appeler comparePassword
     if (!user) {
       await comparePassword(password, DUMMY_HASH);
       throw new UnauthorizedError(
@@ -192,7 +175,7 @@ export class AuthService {
 
   // ─── Mise à jour du profil ────────────────────────────────────
   async updateProfile(userId, data, file) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await authRepo.findById(userId);
     if (!user) throw new NotFoundError("Utilisateur");
 
     const uploader = new MediaUploader();
@@ -210,30 +193,12 @@ export class AuthService {
     }
 
     try {
-      return prisma.user.update({
-        where: { id: userId },
-        data: {
-          ...(data.prenom && { prenom: data.prenom }),
-          ...(data.nom && { nom: data.nom }),
-          ...(data.phone && { phone: data.phone }),
-          ...(data.gender && { gender: data.gender }),
-          ...(newAvatarUrl && { avatar: newAvatarUrl }),
-        },
-        select: {
-          id: true,
-          prenom: true,
-          nom: true,
-          email: true,
-          phone: true,
-          role: true,
-          avatar: true,
-          gender: true,
-          isActive: true,
-          canCreateOrganization: true,
-          createdAt: true,
-          updatedAt: true,
-          lastLoginAt: true,
-        },
+      return authRepo.updateProfile(userId, {
+        ...(data.prenom && { prenom: data.prenom }),
+        ...(data.nom && { nom: data.nom }),
+        ...(data.phone && { phone: data.phone }),
+        ...(data.gender && { gender: data.gender }),
+        ...(newAvatarUrl && { avatar: newAvatarUrl }),
       });
     } catch (error) {
       if (newAvatarUrl) {
@@ -252,7 +217,7 @@ export class AuthService {
     }
 
     if (stored.isRevoked) {
-      // ✅ Détection réutilisation — révoquer tous les tokens
+      // Détection réutilisation — révoquer tous les tokens
       await authRepo.revokeAllUserTokens(stored.userId);
       throw new UnauthorizedError(
         "Refresh token révoqué — tous vos appareils ont été déconnectés"
@@ -268,7 +233,7 @@ export class AuthService {
       throw new ForbiddenError("Compte désactivé");
     }
 
-    // ✅ Rotation : révoquer l'ancien, créer un nouveau
+    // Rotation : révoquer l'ancien, créer un nouveau
     const newAccessToken = jwtService.sign(buildUserPayload(user));
     const newRefreshToken = jwtService.signRefresh(buildUserPayload(user));
 
@@ -304,25 +269,13 @@ export class AuthService {
 
   // ─── Droit de création d'organisation ────────────────────────
   async updateCanCreateOrganization(userId, canCreateOrganization) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await authRepo.findById(userId);
     if (!user) throw new NotFoundError("Utilisateur");
 
-    const updated = await prisma.user.update({
-      where: { id: userId },
-      data: { canCreateOrganization },
-      select: {
-        id: true,
-        prenom: true,
-        nom: true,
-        email: true,
-        role: true,
-        avatar: true,
-        gender: true,
-        isActive: true,
-        canCreateOrganization: true,
-        createdAt: true,
-      },
-    });
+    const updated = await authRepo.updateCanCreateOrganization(
+      userId,
+      canCreateOrganization
+    );
 
     return {
       message: `Droit de création d'organisation ${
@@ -348,23 +301,20 @@ export class AuthService {
             userId
           );
 
-          // Tracer dans les audit logs
-          await prisma.auditLog.create({
-            data: {
-              action: "LINK_PROVISIONAL_MEMBER",
-              resource: "membership",
-              resourceId: membership.id,
-              userId,
-              organizationId: membership.organizationId,
-              membershipId: membership.id,
-              details: {
-                phone,
-                linkedAt: new Date().toISOString(),
-                previousData: {
-                  firstName: membership.provisionalFirstName,
-                  lastName: membership.provisionalLastName,
-                  email: membership.provisionalEmail,
-                },
+          await authRepo.createAuditLog({
+            action: "LINK_PROVISIONAL_MEMBER",
+            resource: "membership",
+            resourceId: membership.id,
+            userId,
+            organizationId: membership.organizationId,
+            membershipId: membership.id,
+            details: {
+              phone,
+              linkedAt: new Date().toISOString(),
+              previousData: {
+                firstName: membership.provisionalFirstName,
+                lastName: membership.provisionalLastName,
+                email: membership.provisionalEmail,
               },
             },
           });

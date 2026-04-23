@@ -1,4 +1,3 @@
-// src/modules/dashboards/financial.dashboard.service.js
 
 export class FinancialDashboardService {
   constructor(repo) {

@@ -2,20 +2,21 @@ import { prisma } from "../../config/database.js";
 
 export class BaseRepository {
   /**
-   * @param {Prisma.ModelName} model - Le modèle Prisma injecté (ex: prisma.member)
+   * @param {Prisma.ModelName} model - Le modèle Prisma injecté (ex: prisma.user)
    */
   constructor(model) {
     this.model = model;
-    // On expose le client prisma pour les transactions dans les repositories enfants
     this.prisma = prisma;
   }
 
   /**
-   * Vérifie si un ID est un ObjectId MongoDB valide
-   * (Évite les crashes Prisma sur les IDs malformés)
+   * Vérifie si un ID est un UUID valide
+   * Remplace l'ancienne validation MongoDB ObjectId
    */
   static isValidId(id) {
-    return /^[a-fA-F0-9]{24}$/.test(id);
+    if (!id || typeof id !== "string") return false;
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+    return uuidRegex.test(id);
   }
 
   /**
@@ -40,7 +41,7 @@ export class BaseRepository {
   }
 
   /**
-   * Trouve la première entité correspondante (utile pour les index non uniques)
+   * Trouve la première entité correspondante
    */
   findFirst(where, options = {}) {
     return this.model.findFirst({
@@ -50,17 +51,15 @@ export class BaseRepository {
   }
 
   /**
-   * Trouve plusieurs entités avec support de la pagination standard
+   * Trouve plusieurs entités avec pagination
    */
   findMany(where = {}, options = {}) {
     const { page, limit, sort, ...rest } = options;
 
-    // Si pas de pagination, on retourne tout (avec les options classiques)
     if (!page || !limit) {
       return this.model.findMany({ where, ...rest });
     }
 
-    // Construction de la pagination
     const skip = (page - 1) * limit;
     const orderBy = sort || { createdAt: "desc" };
 
@@ -69,7 +68,7 @@ export class BaseRepository {
       skip,
       take: limit,
       orderBy,
-      ...rest, // Inclut select, include, etc.
+      ...rest,
     });
   }
 
@@ -106,7 +105,6 @@ export class BaseRepository {
 
   /**
    * Supprime par ID
-   * (Attention: Pour les données financières, préférez souvent un soft delete)
    */
   delete(id) {
     return this.model.delete({
@@ -139,10 +137,43 @@ export class BaseRepository {
   }
 
   /**
-   * Agrégation (ex: Somme, Moyenne)
-   * Utile pour les stats financières (SUM amount)
+   * Agrégation Prisma
    */
   aggregate(args) {
     return this.model.aggregate(args);
+  }
+
+  /**
+   * ⭐ NOUVEAU — Pagination avec métadonnées
+   * Retourne { data, pagination } au lieu de juste les données
+   */
+  async findManyPaginated(where = {}, options = {}) {
+    const { page = 1, limit = 10, sort, ...rest } = options;
+
+    const skip = (page - 1) * limit;
+    const orderBy = sort || { createdAt: "desc" };
+
+    const [data, total] = await Promise.all([
+      this.model.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy,
+        ...rest,
+      }),
+      this.model.count({ where }),
+    ]);
+
+    return {
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
+      },
+    };
   }
 }
