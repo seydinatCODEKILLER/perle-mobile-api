@@ -9,17 +9,41 @@ import {
 
 const orgRepo = new OrganizationRepository();
 
+const MAX_ORGANIZATIONS_PER_USER = 3;
+
 // ─── Helpers privés ───────────────────────────────────────────
 const generateLoginId = () =>
   Math.random().toString(36).substring(2, 10).toUpperCase();
 
-const generateMemberNumber = () =>
-  `MBR${Date.now().toString().slice(-6)}`;
+const generateMemberNumber = () => `MBR${Date.now().toString().slice(-6)}`;
 
 export class OrganizationService {
-
   // ─── Créer une organisation ───────────────────────────────────
   async createOrganization(ownerId, data, file) {
+    // ✅ Vérification de la limite
+    const ownedCount = await prisma.organization.count({
+      where: { ownerId, isActive: true },
+    });
+
+    if (ownedCount >= MAX_ORGANIZATIONS_PER_USER) {
+      throw new ConflictError(
+        `Vous avez atteint la limite de ${MAX_ORGANIZATIONS_PER_USER} organisations. ` +
+          `Désactivez une organisation existante pour en créer une nouvelle.`,
+      );
+    }
+
+    // ✅ Vérification du droit de créer
+    const user = await prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { canCreateOrganization: true },
+    });
+
+    if (!user?.canCreateOrganization) {
+      throw new ForbiddenError(
+        "Vous n'êtes pas autorisé à créer une organisation.",
+      );
+    }
+
     const { settings, wallet, ...orgData } = data;
 
     const uploader = new MediaUploader();
@@ -29,7 +53,7 @@ export class OrganizationService {
       logoUrl = await uploader.upload(
         file,
         "organizations/logos",
-        `org_${orgData.name.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}`
+        `org_${orgData.name.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}`,
       );
     }
 
@@ -133,15 +157,21 @@ export class OrganizationService {
 
   // ─── Obtenir une organisation ─────────────────────────────────
   async getOrganizationById(organizationId, userId) {
-    const { organization, membership } =
-      await orgRepo.findByIdWithDetails(organizationId, userId);
+    const { organization, membership } = await orgRepo.findByIdWithDetails(
+      organizationId,
+      userId,
+    );
 
     if (!organization) throw new NotFoundError("Organisation");
     if (!membership) {
       throw new ForbiddenError("Accès non autorisé à cette organisation");
     }
 
-    return { ...organization, userRole: membership.role, userMembership: membership };
+    return {
+      ...organization,
+      userRole: membership.role,
+      userMembership: membership,
+    };
   }
 
   // ─── Organisations de l'utilisateur ──────────────────────────
@@ -155,8 +185,10 @@ export class OrganizationService {
 
   // ─── Organisations inactives ──────────────────────────────────
   async getInactiveOrganizations(userId, page = 1, limit = 10) {
-    const { organizations, total } =
-      await orgRepo.findInactiveOrganizations(userId, { page, limit });
+    const { organizations, total } = await orgRepo.findInactiveOrganizations(
+      userId,
+      { page, limit },
+    );
 
     return {
       organizations: organizations.map((org) => ({
@@ -178,8 +210,10 @@ export class OrganizationService {
 
   // ─── Rechercher des organisations ────────────────────────────
   async searchOrganizations(userId, query) {
-    const { organizations, total } =
-      await orgRepo.searchOrganizations(userId, query);
+    const { organizations, total } = await orgRepo.searchOrganizations(
+      userId,
+      query,
+    );
 
     return {
       organizations,
@@ -194,10 +228,13 @@ export class OrganizationService {
 
   // ─── Modifier une organisation ────────────────────────────────
   async updateOrganization(organizationId, userId, data, file) {
-    const membership = await orgRepo.findAdminMembership(userId, organizationId);
+    const membership = await orgRepo.findAdminMembership(
+      userId,
+      organizationId,
+    );
     if (!membership) {
       throw new ForbiddenError(
-        "Permissions insuffisantes pour modifier cette organisation"
+        "Permissions insuffisantes pour modifier cette organisation",
       );
     }
 
@@ -213,7 +250,7 @@ export class OrganizationService {
       newLogoUrl = await uploader.upload(
         file,
         "organizations/logos",
-        `org_${organizationId}_${Date.now()}`
+        `org_${organizationId}_${Date.now()}`,
       );
       if (existing?.logo) {
         await uploader.deleteByUrl(existing.logo).catch(() => {});
@@ -245,10 +282,13 @@ export class OrganizationService {
 
   // ─── Modifier les settings ────────────────────────────────────
   async updateOrganizationSettings(organizationId, userId, data) {
-    const membership = await orgRepo.findAdminMembership(userId, organizationId);
+    const membership = await orgRepo.findAdminMembership(
+      userId,
+      organizationId,
+    );
     if (!membership) {
       throw new ForbiddenError(
-        "Permissions insuffisantes pour modifier les paramètres"
+        "Permissions insuffisantes pour modifier les paramètres",
       );
     }
 
@@ -275,15 +315,15 @@ export class OrganizationService {
     if (!organization) throw new NotFoundError("Organisation");
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
-        "Seul le propriétaire peut désactiver l'organisation"
+        "Seul le propriétaire peut désactiver l'organisation",
       );
     }
 
     if (organization.wallet?.currentBalance !== 0) {
       throw new ConflictError(
         `Impossible de désactiver : le portefeuille contient ` +
-        `${organization.wallet.currentBalance} ${organization.wallet.currency}. ` +
-        `Veuillez d'abord solder le compte.`
+          `${organization.wallet.currentBalance} ${organization.wallet.currency}. ` +
+          `Veuillez d'abord solder le compte.`,
       );
     }
 
@@ -306,11 +346,23 @@ export class OrganizationService {
     if (!organization) throw new NotFoundError("Organisation");
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
-        "Seul le propriétaire peut réactiver l'organisation"
+        "Seul le propriétaire peut réactiver l'organisation",
       );
     }
     if (organization.isActive) {
       throw new ConflictError("L'organisation est déjà active");
+    }
+
+    // ✅ Vérification de la limite avant réactivation
+    const ownedCount = await prisma.organization.count({
+      where: { ownerId: userId, isActive: true },
+    });
+
+    if (ownedCount >= MAX_ORGANIZATIONS_PER_USER) {
+      throw new ConflictError(
+        `Vous avez atteint la limite de ${MAX_ORGANIZATIONS_PER_USER} organisations actives. ` +
+          `Désactivez une organisation existante avant de réactiver celle-ci.`,
+      );
     }
 
     return prisma.organization.update({
@@ -345,7 +397,7 @@ export class OrganizationService {
     if (!organization) throw new NotFoundError("Organisation");
     if (organization.ownerId !== userId) {
       throw new ForbiddenError(
-        "Seul le propriétaire peut solder le portefeuille"
+        "Seul le propriétaire peut solder le portefeuille",
       );
     }
     if (!organization.wallet) {
@@ -419,7 +471,7 @@ export class OrganizationService {
     if (!organization) throw new NotFoundError("Organisation");
     if (!membership && organization.ownerId !== userId) {
       throw new ForbiddenError(
-        "Permissions insuffisantes pour modifier le portefeuille"
+        "Permissions insuffisantes pour modifier le portefeuille",
       );
     }
     if (!organization.wallet) throw new NotFoundError("Portefeuille");
