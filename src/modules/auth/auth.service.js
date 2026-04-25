@@ -139,7 +139,7 @@ export class AuthService {
 
     if (!user.password) {
       throw new UnauthorizedError(
-        "Aucun mot de passe défini. Veuillez réinitialiser votre mot de passes."
+        "Aucun mot de passe défini. Veuillez réinitialiser votre mot de passe."
       );
     }
 
