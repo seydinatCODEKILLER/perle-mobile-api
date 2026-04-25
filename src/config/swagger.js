@@ -23,7 +23,7 @@ export const swaggerOptions = {
         description: "Serveur de développement",
       },
       {
-        url: "https://perle-mobile-api-production.up.railway.app",
+        url: "https://perle-mobile-api-production-4db9.up.railway.app",
         description: "Serveur de production",
       },
     ],
