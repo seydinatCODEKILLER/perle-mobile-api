@@ -92,9 +92,6 @@ export class ContributionLifecycleService {
     if (members.length === 0)
       throw new NotFoundError("Aucun membre actif trouvé");
 
-    // La transaction reste sur prisma directement car elle coordonne
-    // plusieurs opérations atomiques qui ne peuvent pas être abstraites
-    // dans le repository sans perdre la garantie transactionnelle
     const result = await prisma.$transaction(async (tx) => {
       if (force && existingCount > 0) {
         await planRepo.deleteManyContributions(
@@ -152,7 +149,6 @@ export class ContributionLifecycleService {
       };
     });
 
-    // Notifications push APRÈS la transaction (non bloquant)
     const membersWithAccount = result.members.filter((m) => m.userId);
     if (membersWithAccount.length > 0) {
       const userIds = membersWithAccount.map((m) => m.userId);

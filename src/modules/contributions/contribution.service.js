@@ -77,6 +77,23 @@ export class ContributionService {
     }
   }
 
+  async #sendCancellationNotification(contribution) {
+    try {
+      await contribRepo.createNotification({
+        organizationId: contribution.organizationId,
+        membershipId: contribution.membershipId,
+        type: "SYSTEM_ALERT",
+        title: "Cotisation annulée",
+        message: `Votre cotisation "${contribution.contributionPlan.name}" d'un montant de ${contribution.amount.toLocaleString("fr-FR")} XOF a été annulée.`,
+        priority: "HIGH",
+        channels: ["IN_APP"],
+        status: "PENDING",
+      });
+    } catch (error) {
+      console.error("Erreur notification annulation:", error);
+    }
+  }
+
   // ─── Lectures ─────────────────────────────────────────────────
   async getContributions(organizationId, currentUserId, filters) {
     await this.#checkAccess(currentUserId, organizationId);
@@ -424,7 +441,8 @@ export class ContributionService {
     if (contribution.status === "CANCELLED")
       throw new ConflictError("Cotisation déjà annulée");
 
-    return prisma.$transaction(async (tx) => {
+    // 👇 On stocke le résultat au lieu de return directement
+    const cancelledContribution = await prisma.$transaction(async (tx) => {
       if (contribution.amountPaid > 0) {
         const wallet = await contribRepo.findWallet(tx, organizationId);
         if (wallet) {
@@ -458,6 +476,11 @@ export class ContributionService {
 
       return cancelledContribution;
     });
+
+    // 👇 Notification après la transaction (non bloquante)
+    await this.#sendCancellationNotification(contribution);
+
+    return cancelledContribution;
   }
 
   async getPlanMembersStatus(organizationId, planId, currentUserId) {
