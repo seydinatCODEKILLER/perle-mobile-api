@@ -390,7 +390,7 @@ export class NotificationService {
     }
   }
 
-    async notifyEventCancelled(organizationId, eventId, eventTitle, visibility) {
+  async notifyEventCancelled(organizationId, eventId, eventTitle, visibility) {
     const channels = await this.resolveChannels(organizationId);
     let targetMembershipIds = [];
 
@@ -398,10 +398,10 @@ export class NotificationService {
       targetMembershipIds = await notifRepo.getEventInvitees(eventId);
     } else {
       const memberships = await notifRepo.getActiveMemberships(organizationId);
-      targetMembershipIds = memberships.map(m => m.id);
+      targetMembershipIds = memberships.map((m) => m.id);
     }
 
-    const notifications = targetMembershipIds.map(membershipId => ({
+    const notifications = targetMembershipIds.map((membershipId) => ({
       organizationId,
       membershipId,
       type: "EVENT_CANCELLED",
@@ -417,5 +417,28 @@ export class NotificationService {
     if (notifications.length > 0) {
       await notifRepo.createMany(notifications);
     }
+  }
+
+  // ─── Supprimer une notification ─────────────────────────────────
+  async deleteNotification(organizationId, notificationId, currentUserId) {
+    // 1. On vérifie que l'utilisateur fait bien partie de l'organisation
+    const membership = await notifRepo.findActiveMembership(
+      organizationId,
+      currentUserId,
+    );
+    if (!membership) throw new ForbiddenError("Accès non autorisé");
+
+    // 2. On vérifie que la notification existe ET qu'elle appartient à CE membre
+    const notification = await notifRepo.findByIdForMembership(
+      notificationId,
+      organizationId,
+      membership.id,
+    );
+    if (!notification) throw new NotFoundError("Notification");
+
+    // 3. Suppression définitive
+    await notifRepo.deleteById(notificationId);
+
+    return { deleted: true };
   }
 }

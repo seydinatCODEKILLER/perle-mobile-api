@@ -34,14 +34,19 @@ const resolveAmount = (plan, membership) => {
   const gender = membership.user?.gender || membership.provisionalGender;
   if (plan.differentiateByGender) {
     if (gender === "MALE" && plan.amountMale != null) return plan.amountMale;
-    if (gender === "FEMALE" && plan.amountFemale != null) return plan.amountFemale;
+    if (gender === "FEMALE" && plan.amountFemale != null)
+      return plan.amountFemale;
   }
   if (plan.amount != null) return plan.amount;
   throw new BadRequestError("Aucun montant défini pour ce membre");
 };
 
 const checkAccess = async (userId, organizationId, roles = []) => {
-  const membership = await planRepo.requireMembership(userId, organizationId, roles);
+  const membership = await planRepo.requireMembership(
+    userId,
+    organizationId,
+    roles,
+  );
   if (!membership) throw new ForbiddenError("Accès non autorisé");
   return membership;
 };
@@ -59,7 +64,7 @@ const formatDate = (date) =>
 // ─── Service ──────────────────────────────────────────────────
 
 export class ContributionLifecycleService {
-
+  
   async generateForPlan(organizationId, planId, userId, options = {}) {
     const { force = false, dueDateOffset = 0 } = options;
     const admin = await checkAccess(userId, organizationId, [
@@ -84,14 +89,20 @@ export class ContributionLifecycleService {
     }
 
     const members = await planRepo.findActiveMembers(organizationId);
-    if (members.length === 0) throw new NotFoundError("Aucun membre actif trouvé");
+    if (members.length === 0)
+      throw new NotFoundError("Aucun membre actif trouvé");
 
     // La transaction reste sur prisma directement car elle coordonne
     // plusieurs opérations atomiques qui ne peuvent pas être abstraites
     // dans le repository sans perdre la garantie transactionnelle
     const result = await prisma.$transaction(async (tx) => {
       if (force && existingCount > 0) {
-        await planRepo.deleteManyContributions(tx, planId, organizationId, dueDateRange);
+        await planRepo.deleteManyContributions(
+          tx,
+          planId,
+          organizationId,
+          dueDateRange,
+        );
       }
 
       const contributionsData = members.map((member) => ({
@@ -103,7 +114,10 @@ export class ContributionLifecycleService {
         status: "PENDING",
       }));
 
-      const created = await planRepo.createManyContributions(tx, contributionsData);
+      const created = await planRepo.createManyContributions(
+        tx,
+        contributionsData,
+      );
       const provisionalCount = members.filter((m) => !m.userId).length;
 
       await planRepo.createAuditLogInTx(tx, {
@@ -181,7 +195,10 @@ export class ContributionLifecycleService {
     const dueDateRange = { gte: period.gte, lt: period.lt };
 
     const exists = await planRepo.findExistingContributionForPeriod(
-      membershipId, planId, organizationId, dueDateRange,
+      membershipId,
+      planId,
+      organizationId,
+      dueDateRange,
     );
     if (exists)
       throw new ConflictError(
@@ -238,21 +255,36 @@ export class ContributionLifecycleService {
     return contribution;
   }
 
-  async updateContributionStatus(organizationId, contributionId, userId, status) {
+  async updateContributionStatus(
+    organizationId,
+    contributionId,
+    userId,
+    status,
+  ) {
     const admin = await checkAccess(userId, organizationId, [
       "ADMIN",
       "FINANCIAL_MANAGER",
     ]);
 
-    const allowedStatuses = ["PENDING", "PARTIAL", "PAID", "OVERDUE", "CANCELLED"];
+    const allowedStatuses = [
+      "PENDING",
+      "PARTIAL",
+      "PAID",
+      "OVERDUE",
+      "CANCELLED",
+    ];
     if (!allowedStatuses.includes(status))
       throw new BadRequestError("Statut invalide");
 
-    const contribution = await planRepo.findContributionWithMember(contributionId);
+    const contribution =
+      await planRepo.findContributionWithMember(contributionId);
     if (!contribution || contribution.organizationId !== organizationId)
       throw new NotFoundError("Cotisation non trouvée");
 
-    const updated = await planRepo.updateContributionStatus(contributionId, status);
+    const updated = await planRepo.updateContributionStatus(
+      contributionId,
+      status,
+    );
 
     await planRepo.createAuditLog({
       action: "UPDATE_CONTRIBUTION_STATUS",

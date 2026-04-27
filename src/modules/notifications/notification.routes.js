@@ -58,7 +58,7 @@ router.use(protect());
 router.get(
   "/:organizationId/unread-count",
   validate(orgParamSchema),
-  notificationController.getUnreadCount
+  notificationController.getUnreadCount,
 );
 
 /**
@@ -102,7 +102,7 @@ router.get(
 router.patch(
   "/:organizationId/read-all",
   validate(orgParamSchema),
-  notificationController.markAllAsRead
+  notificationController.markAllAsRead,
 );
 
 /**
@@ -114,7 +114,7 @@ router.patch(
  *     security:
  *       - bearerAuth: []
  *     description: |
- *       Permet à un administrateur d'envoyer une notification. 
+ *       Permet à un administrateur d'envoyer une notification.
  *       - Si `sendToAll` est true, la notification est envoyée à tous les membres actifs.
  *       - Si `sendToAll` est false, `membershipId` est requis pour cibler un membre spécifique.
  *       Les canaux (EMAIL, SMS, etc.) sont définis automatiquement selon les paramètres de l'organisation.
@@ -196,7 +196,7 @@ router.patch(
 router.post(
   "/:organizationId/send",
   validate(sendNotificationSchema),
-  notificationController.send
+  notificationController.send,
 );
 
 // ─── Routes avec paramètres dynamiques ─────────────────────────
@@ -279,7 +279,7 @@ router.post(
 router.get(
   "/:organizationId",
   validate(listNotificationsSchema),
-  notificationController.getMyNotifications
+  notificationController.getMyNotifications,
 );
 
 /**
@@ -291,7 +291,7 @@ router.get(
  *     security:
  *       - bearerAuth: []
  *     description: |
- *       Passe le statut d'une notification individuelle à DELIVERED. 
+ *       Passe le statut d'une notification individuelle à DELIVERED.
  *       L'opération est idempotente (rien ne se passe si c'est déjà DELIVERED).
  *     parameters:
  *       - in: path
@@ -329,7 +329,56 @@ router.get(
 router.patch(
   "/:organizationId/:id/read",
   validate(getNotificationSchema),
-  notificationController.markAsRead
+  notificationController.markAsRead,
+);
+
+/**
+ * @swagger
+ * /api/notifications/{organizationId}/{id}:
+ *   delete:
+ *     summary: Supprimer une notification spécifique
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     description: Supprime définitivement une notification appartenant à l'utilisateur connecté.
+ *     parameters:
+ *       - in: path
+ *         name: organizationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de l'organisation
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID de la notification
+ *     responses:
+ *       200:
+ *         description: Notification supprimée avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Notification supprimée avec succès"
+ *       401:
+ *         description: Non authentifié
+ *       403:
+ *         description: Accès non autorisé (la notification n'appartient pas à cet utilisateur)
+ *       404:
+ *         description: Notification non trouvée
+ */
+router.delete(
+  "/:organizationId/:id",
+  validate(getNotificationSchema), // On réutilise le schéma qui valide déjà organizationId et id
+  notificationController.delete,
 );
 
 export default router;

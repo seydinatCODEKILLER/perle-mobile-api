@@ -9,7 +9,7 @@ import {
 
 const orgRepo = new OrganizationRepository();
 
-const MAX_ORGANIZATIONS_PER_USER = 3;
+const MAX_ORGANIZATIONS_PER_USER = 1;
 
 // ─── Helpers privés ───────────────────────────────────────────
 const generateLoginId = () =>
@@ -18,7 +18,6 @@ const generateLoginId = () =>
 const generateMemberNumber = () => `MBR${Date.now().toString().slice(-6)}`;
 
 export class OrganizationService {
-
   // ─── Créer une organisation ───────────────────────────────────
   async createOrganization(ownerId, data, file) {
     const ownedCount = await orgRepo.countActiveByOwner(ownerId);
@@ -221,7 +220,10 @@ export class OrganizationService {
 
   // ─── Modifier une organisation ────────────────────────────────
   async updateOrganization(organizationId, userId, data, file) {
-    const membership = await orgRepo.findAdminMembership(userId, organizationId);
+    const membership = await orgRepo.findAdminMembership(
+      userId,
+      organizationId,
+    );
     if (!membership) {
       throw new ForbiddenError(
         "Permissions insuffisantes pour modifier cette organisation",
@@ -259,7 +261,10 @@ export class OrganizationService {
 
   // ─── Modifier les settings ────────────────────────────────────
   async updateOrganizationSettings(organizationId, userId, data) {
-    const membership = await orgRepo.findAdminMembership(userId, organizationId);
+    const membership = await orgRepo.findAdminMembership(
+      userId,
+      organizationId,
+    );
     if (!membership) {
       throw new ForbiddenError(
         "Permissions insuffisantes pour modifier les paramètres",
@@ -321,7 +326,10 @@ export class OrganizationService {
 
   // ─── Statistiques ─────────────────────────────────────────────
   async getOrganizationStats(organizationId, userId) {
-    const membership = await orgRepo.findActiveMembership(userId, organizationId);
+    const membership = await orgRepo.findActiveMembership(
+      userId,
+      organizationId,
+    );
     if (!membership) {
       throw new ForbiddenError("Accès non autorisé à cette organisation");
     }
@@ -421,10 +429,18 @@ export class OrganizationService {
       const updatedWallet = await tx.organizationWallet.update({
         where: { organizationId },
         data: {
-          ...(data.initialBalance !== undefined && { initialBalance: data.initialBalance }),
-          ...(data.currentBalance !== undefined && { currentBalance: data.currentBalance }),
-          ...(data.totalIncome !== undefined && { totalIncome: data.totalIncome }),
-          ...(data.totalExpenses !== undefined && { totalExpenses: data.totalExpenses }),
+          ...(data.initialBalance !== undefined && {
+            initialBalance: data.initialBalance,
+          }),
+          ...(data.currentBalance !== undefined && {
+            currentBalance: data.currentBalance,
+          }),
+          ...(data.totalIncome !== undefined && {
+            totalIncome: data.totalIncome,
+          }),
+          ...(data.totalExpenses !== undefined && {
+            totalExpenses: data.totalExpenses,
+          }),
         },
       });
 

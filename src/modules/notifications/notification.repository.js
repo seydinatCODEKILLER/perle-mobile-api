@@ -85,6 +85,13 @@ export class NotificationRepository extends BaseRepository {
     });
   }
 
+    // ─── Suppression ─────────────────────────────────────────────────
+  async deleteById(id) {
+    return prisma.notification.delete({
+      where: { id },
+    });
+  }
+
   async findByIdForMembership(id, organizationId, membershipId) {
     if (!BaseRepository.isValidId(id)) return null;
     return prisma.notification.findFirst({
