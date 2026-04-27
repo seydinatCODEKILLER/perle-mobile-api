@@ -135,3 +135,10 @@ export const cancelContributionSchema = z.object({
       .optional(),
   }),
 });
+
+export const planMembersStatusSchema = z.object({
+  params: z.object({
+    organizationId: z.string().min(1),
+    planId: z.string().min(1),
+  }),
+});

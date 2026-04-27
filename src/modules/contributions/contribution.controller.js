@@ -10,13 +10,11 @@ export class ContributionController {
         req.user.id,
         req.validated.query,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Cotisations récupérées avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Cotisations récupérées avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -29,13 +27,11 @@ export class ContributionController {
         req.validated.params.id,
         req.user.id,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Cotisation récupérée avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Cotisation récupérée avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -49,13 +45,11 @@ export class ContributionController {
         req.user.id,
         req.validated.body,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Cotisation marquée comme payée avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Cotisation marquée comme payée avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -69,13 +63,11 @@ export class ContributionController {
         req.user.id,
         req.validated.body,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Paiement partiel ajouté avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Paiement partiel ajouté avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -89,13 +81,11 @@ export class ContributionController {
         req.user.id,
         req.validated.query,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Cotisations du membre récupérées avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Cotisations du membre récupérées avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -108,13 +98,11 @@ export class ContributionController {
         req.user.id,
         req.validated.query,
       );
-      res
-        .status(200)
-        .json({
-          success: true,
-          message: "Mes cotisations récupérées avec succès",
-          data: result,
-        });
+      res.status(200).json({
+        success: true,
+        message: "Mes cotisations récupérées avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }
@@ -135,6 +123,23 @@ export class ContributionController {
           : "Cotisation annulée avec succès";
 
       res.status(200).json({ success: true, message, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPlanMembersStatus(req, res, next) {
+    try {
+      const result = await contributionService.getPlanMembersStatus(
+        req.validated.params.organizationId,
+        req.validated.params.planId,
+        req.user.id,
+      );
+      res.status(200).json({
+        success: true,
+        message: "Statut des membres récupéré avec succès",
+        data: result,
+      });
     } catch (error) {
       next(error);
     }

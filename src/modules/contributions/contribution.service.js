@@ -10,7 +10,6 @@ import {
 const contribRepo = new ContributionRepository();
 
 export class ContributionService {
-
   // ─── Helpers privés ───────────────────────────────────────────
   async #checkAccess(userId, organizationId, roles = []) {
     const membership = await contribRepo.findActiveMembership(
@@ -148,8 +147,16 @@ export class ContributionService {
     };
   }
 
-  async getMemberContributions(organizationId, membershipId, currentUserId, filters) {
-    const currentMembership = await this.#checkAccess(currentUserId, organizationId);
+  async getMemberContributions(
+    organizationId,
+    membershipId,
+    currentUserId,
+    filters,
+  ) {
+    const currentMembership = await this.#checkAccess(
+      currentUserId,
+      organizationId,
+    );
 
     if (
       currentMembership.role !== "ADMIN" &&
@@ -171,7 +178,11 @@ export class ContributionService {
         (page - 1) * limit,
         limit,
       ),
-      contribRepo.aggregateMemberTotals(organizationId, membershipId, whereClause),
+      contribRepo.aggregateMemberTotals(
+        organizationId,
+        membershipId,
+        whereClause,
+      ),
     ]);
 
     return {
@@ -182,7 +193,8 @@ export class ContributionService {
       totals: {
         totalAmount: totals._sum.amount || 0,
         totalPaid: totals._sum.amountPaid || 0,
-        totalRemaining: (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
+        totalRemaining:
+          (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
       },
       pagination: {
         page,
@@ -217,7 +229,8 @@ export class ContributionService {
       totals: {
         totalAmount: totals._sum.amount || 0,
         totalPaid: totals._sum.amountPaid || 0,
-        totalRemaining: (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
+        totalRemaining:
+          (totals._sum.amount || 0) - (totals._sum.amountPaid || 0),
       },
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     };
@@ -248,12 +261,16 @@ export class ContributionService {
       if (!wallet)
         throw new NotFoundError("Wallet non trouvé pour cette organisation");
 
-      const updatedContribution = await contribRepo.updateContributionInTx(tx, contributionId, {
-        amountPaid: contribution.amount,
-        status: "PAID",
-        paymentDate: new Date(),
-        paymentMethod: paymentData.paymentMethod,
-      });
+      const updatedContribution = await contribRepo.updateContributionInTx(
+        tx,
+        contributionId,
+        {
+          amountPaid: contribution.amount,
+          status: "PAID",
+          paymentDate: new Date(),
+          paymentMethod: paymentData.paymentMethod,
+        },
+      );
 
       const transaction = await contribRepo.createTransactionInTx(tx, {
         organizationId,
@@ -295,7 +312,12 @@ export class ContributionService {
     return result;
   }
 
-  async addPartialPayment(organizationId, contributionId, currentUserId, paymentData) {
+  async addPartialPayment(
+    organizationId,
+    contributionId,
+    currentUserId,
+    paymentData,
+  ) {
     const currentMembership = await this.#checkAccess(
       currentUserId,
       organizationId,
@@ -309,7 +331,10 @@ export class ContributionService {
 
     if (!contribution.organization.settings.allowPartialPayments)
       throw new ForbiddenError("Paiements partiels non autorisés");
-    if (paymentData.amount <= 0 || paymentData.amount > this.#remaining(contribution))
+    if (
+      paymentData.amount <= 0 ||
+      paymentData.amount > this.#remaining(contribution)
+    )
       throw new BadRequestError("Montant invalide");
 
     const result = await prisma.$transaction(async (tx) => {
@@ -325,13 +350,18 @@ export class ContributionService {
       });
 
       const newAmountPaid = contribution.amountPaid + paymentData.amount;
-      const newStatus = newAmountPaid >= contribution.amount ? "PAID" : "PARTIAL";
+      const newStatus =
+        newAmountPaid >= contribution.amount ? "PAID" : "PARTIAL";
 
-      const updatedContribution = await contribRepo.updateContributionInTx(tx, contributionId, {
-        amountPaid: newAmountPaid,
-        status: newStatus,
-        ...(newStatus === "PAID" && { paymentDate: new Date() }),
-      });
+      const updatedContribution = await contribRepo.updateContributionInTx(
+        tx,
+        contributionId,
+        {
+          amountPaid: newAmountPaid,
+          status: newStatus,
+          ...(newStatus === "PAID" && { paymentDate: new Date() }),
+        },
+      );
 
       await contribRepo.createTransactionInTx(tx, {
         organizationId,
@@ -374,7 +404,12 @@ export class ContributionService {
   }
 
   // ─── Annulation ───────────────────────────────────────────────
-  async cancelContribution(organizationId, contributionId, currentUserId, reason = "") {
+  async cancelContribution(
+    organizationId,
+    contributionId,
+    currentUserId,
+    reason = "",
+  ) {
     const currentMembership = await this.#checkAccess(
       currentUserId,
       organizationId,
@@ -401,7 +436,9 @@ export class ContributionService {
       }
 
       const cancelledContribution = await contribRepo.updateContributionInTx(
-        tx, contributionId, { status: "CANCELLED" },
+        tx,
+        contributionId,
+        { status: "CANCELLED" },
       );
 
       await contribRepo.createAuditLogInTx(tx, {
@@ -421,5 +458,13 @@ export class ContributionService {
 
       return cancelledContribution;
     });
+  }
+
+  async getPlanMembersStatus(organizationId, planId, currentUserId) {
+    await this.#checkAccess(currentUserId, organizationId, [
+      "ADMIN",
+      "FINANCIAL_MANAGER",
+    ]);
+    return contribRepo.getPlanMembersStatus(organizationId, planId);
   }
 }

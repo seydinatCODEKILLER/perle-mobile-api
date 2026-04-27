@@ -93,7 +93,13 @@ export class ContributionRepository extends BaseRepository {
     });
   }
 
-  async findMemberContributions(organizationId, membershipId, whereClause, skip, take) {
+  async findMemberContributions(
+    organizationId,
+    membershipId,
+    whereClause,
+    skip,
+    take,
+  ) {
     const [contributions, total] = await Promise.all([
       prisma.contribution.findMany({
         where: { organizationId, membershipId, ...whereClause },
@@ -227,5 +233,93 @@ export class ContributionRepository extends BaseRepository {
 
   async createAuditLogInTx(tx, data) {
     return tx.auditLog.create({ data });
+  }
+
+  async getPlanMembersStatus(organizationId, planId) {
+    // Tous les membres actifs de l'organisation
+    const members = await prisma.membership.findMany({
+      where: { organizationId, status: "ACTIVE" },
+      include: {
+        user: {
+          select: {
+            prenom: true,
+            nom: true,
+            email: true,
+            phone: true,
+            avatar: true,
+            gender: true,
+          },
+        },
+      },
+    });
+
+    // Toutes les cotisations de ce plan
+    const contributions = await prisma.contribution.findMany({
+      where: { organizationId, contributionPlanId: planId },
+      select: {
+        id: true,
+        membershipId: true,
+        status: true,
+        amount: true,
+        amountPaid: true,
+        dueDate: true,
+      },
+    });
+
+    // Map membershipId -> contribution
+    const contribByMember = new Map(
+      contributions.map((c) => [c.membershipId, c]),
+    );
+
+    const paid = [];
+    const unpaid = [];
+
+    for (const member of members) {
+      const contribution = contribByMember.get(member.id);
+      const displayInfo =
+        member.userId && member.user
+          ? {
+              firstName: member.user.prenom,
+              lastName: member.user.nom,
+              email: member.user.email,
+              phone: member.user.phone,
+              avatar: member.user.avatar,
+              gender: member.user.gender,
+              hasAccount: true,
+              isProvisional: false,
+            }
+          : {
+              firstName: member.provisionalFirstName,
+              lastName: member.provisionalLastName,
+              email: member.provisionalEmail,
+              phone: member.provisionalPhone,
+              avatar: member.provisionalAvatar,
+              gender: member.provisionalGender,
+              hasAccount: false,
+              isProvisional: true,
+            };
+
+      const entry = {
+        membershipId: member.id,
+        memberNumber: member.memberNumber,
+        displayInfo,
+        contribution: contribution ?? null,
+      };
+
+      if (contribution && ["PAID", "PARTIAL"].includes(contribution.status)) {
+        paid.push(entry);
+      } else {
+        unpaid.push(entry);
+      }
+    }
+
+    return {
+      planId,
+      totalMembers: members.length,
+      paidCount: paid.length,
+      unpaidCount: unpaid.length,
+      paid,
+      unpaid,
+    };
   }
 }
